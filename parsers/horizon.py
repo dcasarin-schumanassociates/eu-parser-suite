@@ -26,7 +26,7 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
     fixed_lines = []
     i = 0
     while i < len(lines):
-        if re.match(r"^HORIZON-[A-Za-z0-9\-]+:?$", lines[i]) and i + 1 < len(lines):
+        if re.match(r"^HORIZON-[A-Z0-9\-]+:?$", lines[i]) and i + 1 < len(lines):
             fixed_lines.append(f"{lines[i]} {lines[i + 1]}")
             i += 2
         else:
@@ -143,69 +143,36 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
 
-    # Header variants
-    OPENING_HDR   = re.compile(r"^\s*(opening|opening date|opens)\s*:", re.IGNORECASE)
-    DEADLINE_HDR  = re.compile(r"^\s*(deadline|deadlines|deadline\(s\)|cut-?off(?: date| dates)?|cut-?offs)\s*:", re.IGNORECASE)
-    DESTINATION_HDR = re.compile(r"^\s*destination\s*:", re.IGNORECASE)
-
-    TOPIC_CODE = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
-
-    # Date patterns (full month, abbreviated, ISO, dd/mm/yyyy)
-    MONTHS = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
-    DATE_WORDY = re.compile(rf"\b(\d{{1,2}})\s+({MONTHS})\s+(\d{{4}})\b", re.IGNORECASE)  # 15 Sep 2025 / 15 September 2025
-    DATE_ISO   = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")                                  # 2025-09-15
-    DATE_SLASH = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")                              # 15/09/2025 (dd/mm/yyyy)
-
-    def _find_dates(s: str) -> list[str]:
-        out: list[str] = []
-        # Wordy / abbreviated months (keep original for readability)
-        out += [f"{d} {m} {y}" for d, m, y in DATE_WORDY.findall(s)]
-        # ISO → normalise to YYYY-MM-DD
-        out += [f"{y}-{m}-{d}" for y, m, d in DATE_ISO.findall(s)]
-        # Slash → assume European dd/mm/yyyy
-        for d, m, y in DATE_SLASH.findall(s):
-            out.append(f"{int(y):04d}-{int(m):02d}-{int(d):02d}")
-        # De-duplicate, preserve order
-        seen = set(); dedup = []
-        for v in out:
-            if v not in seen:
-                seen.add(v); dedup.append(v)
-        return dedup
-
     metadata_map: Dict[str, Dict[str, Any]] = {}
-    current = {"opening_date": None, "deadline": None, "deadline_2": None, "destination": None}
+    current_metadata = {
+        "opening_date": None,
+        "deadline": None,
+        "destination": None
+    }
+
+    topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
     collecting = False
-
     for line in lines:
-        if OPENING_HDR.match(line):
-            dates = _find_dates(line)
-            current["opening_date"] = dates[0] if dates else None
-            collecting = True
-            continue
+        lower = line.lower()
 
-        if DEADLINE_HDR.match(line):
-            dates = _find_dates(line)
-            current["deadline"]   = dates[0] if dates else None
-            current["deadline_2"] = dates[1] if len(dates) > 1 else None  # ← only set when present
+        if lower.startswith("opening:"):
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            current_metadata["opening_date"] = m.group(1) if m else None
+            current_metadata["deadline"] = None
             collecting = True
-            continue
 
-        if DESTINATION_HDR.match(line):
-            current["destination"] = line.split(":", 1)[-1].strip()
-            collecting = True
-            continue
+        elif collecting and lower.startswith("deadline"):
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            current_metadata["deadline"] = m.group(1) if m else None
 
-        if collecting:
-            m = TOPIC_CODE.match(line)
-            if m:
-                code = m.group(1)
-                metadata_map[code] = {
-                    "opening_date": current.get("opening_date"),
-                    "deadline": current.get("deadline"),
-                    "destination": current.get("destination"),
-                    # If you later want to surface this in the DataFrame:
-                    "deadline_2": current.get("deadline_2"),
-                }
+        elif collecting and lower.startswith("destination"):
+            current_metadata["destination"] = line.split(":", 1)[-1].strip()
+
+        elif collecting:
+            match = topic_pattern.match(line)
+            if match:
+                code = match.group(1)
+                metadata_map[code] = current_metadata.copy()
 
     return metadata_map
 
@@ -235,8 +202,7 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
         "Opening Date": t.get("opening_date"),
-        "Deadline 1": t.get("deadline"),          # renamed
-        "Deadline 2": t.get("deadline_2"),        # new column (will be None/empty for now)
+        "Deadline": t.get("deadline"),
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
@@ -248,10 +214,10 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
+        # provenance (optional; blank for now – add if you like)
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
     } for t in enriched])
-
 
     return df
