@@ -8,7 +8,6 @@ import pandas as pd
 
 # ========== PDF Parsing ==========
 def extract_text_from_pdf(file_like: BytesIO) -> str:
-    # file_like should be positioned at start
     with fitz.open(stream=file_like.read(), filetype="pdf") as doc:
         return "\n".join(page.get_text() for page in doc)
 
@@ -18,7 +17,6 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"\xa0", " ", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n+", "\n", text)
-    # normalise multiple spaces around punctuation
     return text.strip()
 
 # ========== Topic Extraction ==========
@@ -37,20 +35,20 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
     topic_pattern = r"^(HORIZON-[A-Za-z0-9\-]+):\s*(.*)$"
     candidate_topics = []
     for i, line in enumerate(fixed_lines):
-        match = re.match(topic_pattern, line)
-        if match:
+        m = re.match(topic_pattern, line)
+        if m:
             lookahead_text = "\n".join(fixed_lines[i+1:i+20]).lower()
             if any(key in lookahead_text for key in ["call:", "type of action"]):
                 candidate_topics.append({
-                    "code": match.group(1),
-                    "title": match.group(2).strip(),
+                    "code": m.group(1),
+                    "title": m.group(2).strip(),
                     "start_line": i
                 })
 
     topic_blocks = []
     for idx, topic in enumerate(candidate_topics):
         start = topic["start_line"]
-        end = candidate_topics[idx + 1]["start_line"] if idx + 1 < len(fixed_lines) else len(fixed_lines)
+        end = candidate_topics[idx + 1]["start_line"] if idx + 1 < len(candidate_topics) else len(fixed_lines)
         for j in range(start + 1, end):
             if fixed_lines[j].lower().startswith("this destination"):
                 end = j
@@ -60,7 +58,6 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
             "title": topic["title"],
             "full_text": "\n".join(fixed_lines[start:end]).strip()
         })
-
     return topic_blocks
 
 # ========== Field Extraction ==========
@@ -140,27 +137,26 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 # ========== Metadata (Opening + multi-deadline) ==========
-# Support both short and full month names (EN)
-_MONTH = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)"
-_DATE = rf"(\d{{1,2}}\s+{_MONTH}\s+\d{{4}})"
-# Date optionally followed by a label in parentheses (e.g., (First Stage))
-_DATE_LABEL_PAIR = re.compile(rf"{_DATE}\s*(?:\(([^)]+)\))?")
+_DATE_LABEL_PAIR = re.compile(
+    r"(\d{1,2}\s+\w+\s+\d{4})"          # date, e.g., 23 Sep 2025
+    r"(?:\s*\(([^)]+)\))?"              # optional label in parentheses, e.g., (First Stage)
+)
 
 def _parse_deadlines(line: str) -> Dict[str, Optional[str]]:
     """
     Handles:
       'Deadline: 15 Oct 2025'
       'Deadlines: 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)'
-      'Deadline(s): 23 September 2025 (First Stage), 14 April 2026 (Second Stage)'
-    Returns keys: deadline1, deadline1_label, deadline2, deadline2_label
+      'Deadline(s): ...'
+    Returns dict with deadline1, deadline1_label, deadline2, deadline2_label (strings as found).
     """
-    matches = _DATE_LABEL_PAIR.findall(line)
+    results = _DATE_LABEL_PAIR.findall(line)
     d1 = l1 = d2 = l2 = None
-    if matches:
-        if len(matches) >= 1:
-            d1, l1 = matches[0][0], (matches[0][1] or None)
-        if len(matches) >= 2:
-            d2, l2 = matches[1][0], (matches[1][1] or None)
+    if results:
+        if len(results) >= 1:
+            d1, l1 = results[0][0], (results[0][1] or None)
+        if len(results) >= 2:
+            d2, l2 = results[1][0], (results[1][1] or None)
     return {
         "deadline1": d1,
         "deadline1_label": l1,
@@ -172,7 +168,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
 
     metadata_map: Dict[str, Dict[str, Any]] = {}
-    current_metadata = {
+    current = {
         "opening_date": None,
         "deadline1": None,
         "deadline1_label": None,
@@ -188,38 +184,36 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 
         if lower.startswith("opening:"):
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
-            current_metadata["opening_date"] = m.group(1) if m else None
-            # Reset deadlines at each new Opening section
-            current_metadata["deadline1"] = None
-            current_metadata["deadline1_label"] = None
-            current_metadata["deadline2"] = None
-            current_metadata["deadline2_label"] = None
+            current["opening_date"] = m.group(1) if m else None
+            # reset deadlines when we see a new 'Opening:'
+            current["deadline1"] = current["deadline1_label"] = None
+            current["deadline2"] = current["deadline2_label"] = None
             collecting = True
 
         elif collecting and lower.startswith("deadline"):
             # covers 'deadline', 'deadlines', 'deadline(s)'
             dl = _parse_deadlines(line)
-            current_metadata.update(dl)
+            # fill first, then second if present
+            current.update(dl)
 
         elif collecting and lower.startswith("destination"):
-            current_metadata["destination"] = line.split(":", 1)[-1].strip()
+            current["destination"] = line.split(":", 1)[-1].strip()
 
         elif collecting:
             match = topic_pattern.match(line)
             if match:
                 code = match.group(1)
-                metadata_map[code] = current_metadata.copy()
+                metadata_map[code] = current.copy()
 
     return metadata_map
 
 # ========== Public API ==========
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
-    Returns a DataFrame like your current output, now with:
-      - 'Deadline 1', 'Deadline 1 Label', 'Deadline 2', 'Deadline 2 Label'
-      - Legacy 'Deadline' kept = 'Deadline 1'
+    Returns a DataFrame like your current output, but with:
+      - 'Deadline 1' and 'Deadline 2' columns (labels optional)
+      - Legacy 'Deadline' kept (equal to 'Deadline 1') for compatibility
     """
-    # Read bytes once, then work with a new BytesIO so downstream .read() works
     pdf_bytes = file_like.read()
     raw_text = extract_text_from_pdf(BytesIO(pdf_bytes))
 
@@ -243,11 +237,12 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
             "Code": t["code"],
             "Title": t["title"],
             "Opening Date": t.get("opening_date"),
+            # NEW multi-stage fields
             "Deadline 1": deadline1,
             "Deadline 1 Label": t.get("deadline1_label"),
             "Deadline 2": deadline2,
             "Deadline 2 Label": t.get("deadline2_label"),
-            # Legacy single deadline (compatibility)
+            # Legacy single deadline (kept = Deadline 1)
             "Deadline": deadline1,
             "Destination": t.get("destination"),
             "Budget Per Project": t.get("budget_per_project"),
@@ -266,5 +261,5 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         })
 
     df = pd.DataFrame(rows)
-    return df
 
+    return df
