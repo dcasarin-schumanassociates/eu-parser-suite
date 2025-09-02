@@ -77,8 +77,9 @@ def make_gantt(df: pd.DataFrame):
     if g.empty:
         return None
 
+    # Use short labels (codes) for clarity on y-axis
     g = g.assign(
-        _label=g["code"].fillna("").astype(str)  # short label for clarity
+        _label=g["code"].fillna("").astype(str)
     )
 
     fig = px.timeline(
@@ -103,15 +104,31 @@ def make_gantt(df: pd.DataFrame):
     fig.update_layout(
         height=chart_height,
         margin=dict(l=10, r=10, t=10, b=10),
+        bargap=0.4,  # controls row spacing
+        plot_bgcolor="white",
+
+        # Bottom axis with monthly ticks
         xaxis=dict(
-            rangeslider=dict(visible=True),
-            showgrid=True,              # ensure grid lines are shown
-            gridcolor="rgba(200,200,200,0.5)",  # light grey with some opacity
-            gridwidth=1                 # make them thicker (default is 0.5)
+            dtick="M1",               # tick every month
+            tickformat="%b %Y",       # e.g. Jan 2025
+            showgrid=True,
+            gridcolor="rgba(180,180,180,0.6)",
+            gridwidth=1,
+            fixedrange=False,
         ),
-        plot_bgcolor="white"  # white background makes lines stand out
+
+        # Top axis (mirror) with same monthly ticks
+        xaxis2=dict(
+            overlaying="x",
+            side="top",
+            dtick="M1",
+            tickformat="%b %Y",
+            showgrid=False,
+        ),
     )
+
     return fig
+
 
 
     # Scale height automatically
