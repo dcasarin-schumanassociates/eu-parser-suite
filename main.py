@@ -69,21 +69,37 @@ for c in ["Opening Date", "Deadline"]:
 
 gantt_df = gantt_df.dropna(subset=["Opening Date", "Deadline"])
 
-def _shorten(s, n=90):
-    s = str(s) if pd.notna(s) else ""
-    return (s[:n] + "…") if len(s) > n else s
+# Shorten or wrap long titles with line breaks
+def _wrap_title(s: str, n: int = 60) -> str:
+    """
+    Insert a line break every ~n characters (on spaces if possible).
+    """
+    if not isinstance(s, str):
+        return ""
+    words = s.split()
+    lines, current = [], ""
+    for w in words:
+        if len(current) + len(w) + 1 <= n:
+            current += (" " if current else "") + w
+        else:
+            lines.append(current)
+            current = w
+    if current:
+        lines.append(current)
+    # join with <br> so Plotly will render it as multi-line
+    return "<br>".join(lines)
 
-gantt_df["_TitleShort"] = gantt_df["Title"].apply(_shorten)
+gantt_df["_TitleWrapped"] = gantt_df["Title"].apply(lambda x: _wrap_title(str(x), n=60))
+
 colour_dim = "Type of Action" if "Type of Action" in gantt_df.columns else None
 
 fig = px.timeline(
     gantt_df,
     x_start="Opening Date",
     x_end="Deadline",
-    y="_TitleShort",
+    y="_TitleWrapped",
     color=colour_dim,
     hover_data={
-        "_TitleShort": False,
         "Title": True,
         "Code": "Code" in gantt_df.columns,
         "Opening Date": True,
@@ -95,18 +111,17 @@ fig = px.timeline(
     },
 )
 
-# Reverse y-axis (so first topic is at the top)
 fig.update_yaxes(autorange="reversed")
 
-# Add range slider for scrolling/zooming
-fig.update_xaxes(rangeslider_visible=True)
-
-# 🔑 Increase row height
-fig.update_traces(width=0.6)  # thicker bars (0.6 = 60% of row height)
+# increase row height
+n_rows = len(gantt_df)
 fig.update_layout(
-    bargap=0.4,                # space between bars
-    yaxis=dict(tickfont=dict(size=11)),  # optional: bigger text
+    yaxis=dict(tickfont=dict(size=10)),   # smaller font for labels
+    margin=dict(l=250),                   # more space for wrapped labels
+    height=200 + n_rows * 40              # scale row height
 )
+
+fig.update_xaxes(rangeslider_visible=True)
 
 st.plotly_chart(fig, use_container_width=True)
 
