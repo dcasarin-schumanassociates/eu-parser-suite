@@ -3,3 +3,4 @@ pymupdf        # aka fitz
 pandas
 openpyxl       # for Excel export
 plotly
+python-dateutil
