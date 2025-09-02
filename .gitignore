@@ -1,0 +1,11 @@
+# venv / editor
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# artefacts
+*.xlsx
+
+# streamlit
+.streamlit/secrets.toml
