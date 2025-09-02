@@ -76,23 +76,44 @@ def make_gantt(df: pd.DataFrame):
     g = df.dropna(subset=["opening_date", "deadline", "title"])
     if g.empty:
         return None
-    g = g.assign(_label=g["code"].fillna("").astype(str) + " — " + g["title"].astype(str).str[:60])
+
+    # Build a custom label with line breaks every ~40 characters
+    def wrap_text(text, width=40):
+        return "<br>".join([text[i:i+width] for i in range(0, len(text), width)])
+
+    g = g.assign(
+        _label=g["code"].fillna("").astype(str) + " — " + g["title"].astype(str)
+    )
+    g["_label_wrapped"] = g["_label"].apply(lambda t: wrap_text(t, width=40))
+
+    # Use the wrapped label as the y-axis
     fig = px.timeline(
         g,
         x_start="opening_date",
         x_end="deadline",
-        y="title" if "title" in g.columns else "programme",
+        y="_label_wrapped",
         color="programme",
-        hover_data=["code", "title", "opening_date", "deadline", "budget_per_project_eur",
-                    "total_budget_eur", "type_of_action", "trl",
-                    "destination_or_strand", "version_label", "source_filename"]
+        hover_data=[
+            "code", "title", "opening_date", "deadline",
+            "budget_per_project_eur", "total_budget_eur",
+            "type_of_action", "trl",
+            "destination_or_strand", "version_label", "source_filename"
+        ],
     )
+
     fig.update_yaxes(autorange="reversed")
+
+    # Increase row (track) height: adjust bargap
     fig.update_layout(
-        height=600,
+        height=800,  # make the chart taller overall
         margin=dict(l=10, r=10, t=10, b=10),
         xaxis=dict(rangeslider=dict(visible=True)),
+        bargap=0.4,  # 0 = bars touch; 1 = no bars. Lower value = taller rows
     )
+
+    # Optionally reduce font size to make wrapped text fit better
+    fig.update_yaxes(tickfont=dict(size=10))
+
     return fig
 
 # ===================
