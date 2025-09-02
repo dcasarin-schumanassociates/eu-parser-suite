@@ -26,7 +26,7 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
     fixed_lines = []
     i = 0
     while i < len(lines):
-        if re.match(r"^HORIZON-[A-Z0-9\-]+:?$", lines[i]) and i + 1 < len(lines):
+        if re.match(r"^HORIZON-[A-Za-z0-9\-]+:?$", lines[i]) and i + 1 < len(lines):
             fixed_lines.append(f"{lines[i]} {lines[i + 1]}")
             i += 2
         else:
@@ -142,41 +142,76 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     """
-    Extract Opening date, Deadline(s), and Destination headers
-    and attach them to subsequent HORIZON topic codes.
-    Supports one or two deadlines without creating phantom values.
+    Extract Opening, Deadline(s), Destination and attach them to subsequent topics.
+    Strict rule for two-stage: deadline_2 is only set when '(First Stage)' and '(Second Stage)'
+    are present with two dates in order on the *same* deadline line.
     """
     lines = normalize_text(text).splitlines()
 
-    OPENING_HDR    = re.compile(r"^\s*(opening|opening date|opens)\s*:", re.IGNORECASE)
-    DEADLINE_HDR   = re.compile(r"^\s*(deadline|deadlines?|deadline\(s\))\s*:", re.IGNORECASE)
-    DESTINATION_HDR= re.compile(r"^\s*destination", re.IGNORECASE)
-    TOPIC_CODE     = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
+    # Flexible header detection (but not over-permissive)
+    OPENING_HDR     = re.compile(r"^\s*(opening|opening date|opens)\s*:", re.IGNORECASE)
+    DEADLINE_HDR    = re.compile(r"^\s*(deadline|deadlines|deadline\(s\)|cut-?off(?: date)?s?)\s*:", re.IGNORECASE)
+    DESTINATION_HDR = re.compile(r"^\s*destination\s*:", re.IGNORECASE)
 
-    # Match formats like "22 May 2025" or "14 Apr 2026"
-    DATE_PATTERN   = re.compile(
-        r"\b(\d{1,2})\s+"
-        r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
-        r"Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-        r"\s+(\d{4})\b",
-        re.IGNORECASE,
-    )
+    # Topic code (ALLOW lower-case too, e.g., '-two-stage')
+    TOPIC_CODE      = re.compile(r"^(HORIZON-[A-Za-z0-9\-]+):")
+
+    # Date: 15 Sep 2026 / 15 September 2026
+    MONTHS = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
+    DATE_WORDY = re.compile(rf"\b(\d{{1,2}})\s+({MONTHS})\s+(\d{{4}})\b", re.IGNORECASE)
+
+    def _first_wordy(s: str) -> str | None:
+        m = DATE_WORDY.search(s)
+        if not m:
+            return None
+        d, mth, y = m.groups()
+        return f"{d} {mth} {y}"
+
+    def _two_stage_from_line(s: str) -> tuple[str | None, str | None]:
+        """
+        Returns (deadline_1, deadline_2).
+        Only sets deadline_2 if the line contains two wordy dates AND the labels
+        '(First Stage)' and '(Second Stage)' (or '1st stage'/'2nd stage') appear in order.
+        """
+        # Work on the part after the header colon if present
+        part = s.split(":", 1)[1] if ":" in s else s
+        dates = DATE_WORDY.findall(part)
+        text_l = part.lower()
+
+        has_first  = ("first stage" in text_l) or ("1st stage" in text_l)
+        has_second = ("second stage" in text_l) or ("2nd stage" in text_l)
+
+        if len(dates) >= 2 and has_first and has_second:
+            # take the first two dates in order
+            (d1, m1, y1), (d2, m2, y2) = dates[0], dates[1]
+            return (f"{d1} {m1} {y1}", f"{d2} {m2} {y2}")
+
+        # Single-stage or ambiguous → only Deadline 1
+        if len(dates) >= 1:
+            d1, m1, y1 = dates[0]
+            return (f"{d1} {m1} {y1}", None)
+
+        return (None, None)
 
     metadata_map: Dict[str, Dict[str, Any]] = {}
-    current = {"opening_date": None, "deadline": None, "deadline_2": None, "destination": None}
+    current = {
+        "opening_date": None,
+        "deadline": None,
+        "deadline_2": None,
+        "destination": None
+    }
     collecting = False
 
     for line in lines:
         if OPENING_HDR.match(line):
-            m = DATE_PATTERN.search(line)
-            current["opening_date"] = f"{m.group(1)} {m.group(2)} {m.group(3)}" if m else None
+            current["opening_date"] = _first_wordy(line)
             collecting = True
             continue
 
         if DEADLINE_HDR.match(line):
-            dates = [f"{d} {m} {y}" for d, m, y in DATE_PATTERN.findall(line)]
-            current["deadline"]   = dates[0] if len(dates) >= 1 else None
-            current["deadline_2"] = dates[1] if len(dates) >= 2 else None
+            d1, d2 = _two_stage_from_line(line)
+            current["deadline"]   = d1
+            current["deadline_2"] = d2  # stays None unless explicit two-stage pattern
             collecting = True
             continue
 
@@ -189,11 +224,14 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             m = TOPIC_CODE.match(line)
             if m:
                 code = m.group(1)
-                metadata_map[code] = current.copy()
+                metadata_map[code] = {
+                    "opening_date": current.get("opening_date"),
+                    "deadline": current.get("deadline"),
+                    "deadline_2": current.get("deadline_2"),
+                    "destination": current.get("destination"),
+                }
 
     return metadata_map
-
-
 
 # ========== Public API ==========
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
