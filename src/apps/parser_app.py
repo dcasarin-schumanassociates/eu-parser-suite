@@ -1,14 +1,15 @@
-# src/apps/parser_app.py
 from __future__ import annotations
 
 # --- robust import bootstrap ---
 import sys
 from pathlib import Path
-# repo root = two levels up from this file: eu-parser-suite/
+
+# repo root (eu-parser-suite/) = three levels up from this file
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 # --------------------------------
+
 
 import io
 import pandas as pd
