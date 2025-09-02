@@ -142,58 +142,41 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     """
-    Extracts metadata like Opening date(s), Deadline(s), and Destination
-    and associates them with subsequent topic codes (HORIZON-...).
-    Now supports plural headers, Deadline(s), and two deadlines.
+    Extract Opening date, Deadline(s), and Destination headers
+    and attach them to subsequent HORIZON topic codes.
+    Supports one or two deadlines without creating phantom values.
     """
     lines = normalize_text(text).splitlines()
 
-    # --- Flexible header regexes ---
-    OPENING_HDR   = re.compile(r"^\s*(opening|opening date|opens)\s*:", re.IGNORECASE)
-    DEADLINE_HDR  = re.compile(r"^\s*(deadline|deadlines?|deadline\(s\)|cut-?off(?: date)?s?)\s*:", re.IGNORECASE)
-    DESTINATION_HDR = re.compile(r"^\s*destination", re.IGNORECASE)
-    TOPIC_CODE    = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
+    OPENING_HDR    = re.compile(r"^\s*(opening|opening date|opens)\s*:", re.IGNORECASE)
+    DEADLINE_HDR   = re.compile(r"^\s*(deadline|deadlines?|deadline\(s\))\s*:", re.IGNORECASE)
+    DESTINATION_HDR= re.compile(r"^\s*destination", re.IGNORECASE)
+    TOPIC_CODE     = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
 
-    # --- Date regexes ---
-    MONTHS = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
-    DATE_WORDY = re.compile(rf"\b(\d{{1,2}})\s+({MONTHS})\s+(\d{{4}})\b", re.IGNORECASE)  # 15 September 2026 / 15 Sep 2026
-    DATE_ISO   = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")                                # 2026-09-15
-    DATE_SLASH = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")                            # 15/09/2026
-
-    def _find_dates(s: str) -> list[str]:
-        out: list[str] = []
-        out += [f"{d} {m} {y}" for d, m, y in DATE_WORDY.findall(s)]
-        out += [f"{y}-{m}-{d}" for y, m, d in DATE_ISO.findall(s)]
-        for d, m, y in DATE_SLASH.findall(s):
-            out.append(f"{int(y):04d}-{int(m):02d}-{int(d):02d}")
-        # Deduplicate preserving order
-        seen, dedup = set(), []
-        for v in out:
-            if v not in seen:
-                seen.add(v)
-                dedup.append(v)
-        return dedup
+    # Match formats like "22 May 2025" or "14 Apr 2026"
+    DATE_PATTERN   = re.compile(
+        r"\b(\d{1,2})\s+"
+        r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+        r"Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+        r"\s+(\d{4})\b",
+        re.IGNORECASE,
+    )
 
     metadata_map: Dict[str, Dict[str, Any]] = {}
-    current = {
-        "opening_date": None,
-        "deadline": None,
-        "deadline_2": None,
-        "destination": None
-    }
+    current = {"opening_date": None, "deadline": None, "deadline_2": None, "destination": None}
     collecting = False
 
     for line in lines:
         if OPENING_HDR.match(line):
-            dates = _find_dates(line)
-            current["opening_date"] = dates[0] if dates else None
+            m = DATE_PATTERN.search(line)
+            current["opening_date"] = f"{m.group(1)} {m.group(2)} {m.group(3)}" if m else None
             collecting = True
             continue
 
         if DEADLINE_HDR.match(line):
-            dates = _find_dates(line)
-            current["deadline"]   = dates[0] if dates else None
-            current["deadline_2"] = dates[1] if len(dates) > 1 else None
+            dates = [f"{d} {m} {y}" for d, m, y in DATE_PATTERN.findall(line)]
+            current["deadline"]   = dates[0] if len(dates) >= 1 else None
+            current["deadline_2"] = dates[1] if len(dates) >= 2 else None
             collecting = True
             continue
 
@@ -206,14 +189,10 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             m = TOPIC_CODE.match(line)
             if m:
                 code = m.group(1)
-                metadata_map[code] = {
-                    "opening_date": current.get("opening_date"),
-                    "deadline": current.get("deadline"),
-                    "deadline_2": current.get("deadline_2"),
-                    "destination": current.get("destination"),
-                }
+                metadata_map[code] = current.copy()
 
     return metadata_map
+
 
 
 # ========== Public API ==========
