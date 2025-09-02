@@ -141,40 +141,80 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Extracts metadata like Opening date(s), Deadline(s), and Destination
+    and associates them with subsequent topic codes (HORIZON-...).
+    Now supports plural headers, Deadline(s), and two deadlines.
+    """
     lines = normalize_text(text).splitlines()
 
+    # --- Flexible header regexes ---
+    OPENING_HDR   = re.compile(r"^\s*(opening|opening date|opens)\s*:", re.IGNORECASE)
+    DEADLINE_HDR  = re.compile(r"^\s*(deadline|deadlines?|deadline\(s\)|cut-?off(?: date)?s?)\s*:", re.IGNORECASE)
+    DESTINATION_HDR = re.compile(r"^\s*destination", re.IGNORECASE)
+    TOPIC_CODE    = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
+
+    # --- Date regexes ---
+    MONTHS = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
+    DATE_WORDY = re.compile(rf"\b(\d{{1,2}})\s+({MONTHS})\s+(\d{{4}})\b", re.IGNORECASE)  # 15 September 2026 / 15 Sep 2026
+    DATE_ISO   = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")                                # 2026-09-15
+    DATE_SLASH = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")                            # 15/09/2026
+
+    def _find_dates(s: str) -> list[str]:
+        out: list[str] = []
+        out += [f"{d} {m} {y}" for d, m, y in DATE_WORDY.findall(s)]
+        out += [f"{y}-{m}-{d}" for y, m, d in DATE_ISO.findall(s)]
+        for d, m, y in DATE_SLASH.findall(s):
+            out.append(f"{int(y):04d}-{int(m):02d}-{int(d):02d}")
+        # Deduplicate preserving order
+        seen, dedup = set(), []
+        for v in out:
+            if v not in seen:
+                seen.add(v)
+                dedup.append(v)
+        return dedup
+
     metadata_map: Dict[str, Dict[str, Any]] = {}
-    current_metadata = {
+    current = {
         "opening_date": None,
         "deadline": None,
+        "deadline_2": None,
         "destination": None
     }
-
-    topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
     collecting = False
+
     for line in lines:
-        lower = line.lower()
-
-        if lower.startswith("opening:"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
-            current_metadata["opening_date"] = m.group(1) if m else None
-            current_metadata["deadline"] = None
+        if OPENING_HDR.match(line):
+            dates = _find_dates(line)
+            current["opening_date"] = dates[0] if dates else None
             collecting = True
+            continue
 
-        elif collecting and lower.startswith("deadline"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
-            current_metadata["deadline"] = m.group(1) if m else None
+        if DEADLINE_HDR.match(line):
+            dates = _find_dates(line)
+            current["deadline"]   = dates[0] if dates else None
+            current["deadline_2"] = dates[1] if len(dates) > 1 else None
+            collecting = True
+            continue
 
-        elif collecting and lower.startswith("destination"):
-            current_metadata["destination"] = line.split(":", 1)[-1].strip()
+        if DESTINATION_HDR.match(line):
+            current["destination"] = line.split(":", 1)[-1].strip()
+            collecting = True
+            continue
 
-        elif collecting:
-            match = topic_pattern.match(line)
-            if match:
-                code = match.group(1)
-                metadata_map[code] = current_metadata.copy()
+        if collecting:
+            m = TOPIC_CODE.match(line)
+            if m:
+                code = m.group(1)
+                metadata_map[code] = {
+                    "opening_date": current.get("opening_date"),
+                    "deadline": current.get("deadline"),
+                    "deadline_2": current.get("deadline_2"),
+                    "destination": current.get("destination"),
+                }
 
     return metadata_map
+
 
 # ========== Public API ==========
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
