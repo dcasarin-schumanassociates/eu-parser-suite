@@ -49,7 +49,7 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
     topic_blocks = []
     for idx, topic in enumerate(candidate_topics):
         start = topic["start_line"]
-        end = candidate_topics[idx + 1]["start_line"] if idx + 1 < len(candidate_topics) else len(fixed_lines)
+        end = candidate_topics[idx + 1]["start_line"] if idx + 1 < len(fixed_lines) else len(fixed_lines)
         for j in range(start + 1, end):
             if fixed_lines[j].lower().startswith("this destination"):
                 end = j
@@ -140,35 +140,66 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
         )
     }
 
+# ========== Metadata (Opening / Deadlines / Destination) ==========
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Original behaviour preserved for single deadlines (now mapped to 'deadline1').
+    Adds simple support for two-stage lines like:
+      'Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)'
+    without turning one-stage into two.
+    """
     lines = normalize_text(text).splitlines()
 
     metadata_map: Dict[str, Dict[str, Any]] = {}
     current_metadata = {
         "opening_date": None,
-        "deadline": None,
+        "deadline1": None,
+        "deadline2": None,
         "destination": None
     }
 
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
+    # Single-format date (keep as your original: '15 March 2026' / '15 Mar 2026')
+    date_wordy = re.compile(r"(\d{1,2}\s+\w+\s+\d{4})")
+
     collecting = False
     for line in lines:
-        lower = line.lower()
+        lower = line.lower().strip()
 
+        # Opening: (unchanged)
         if lower.startswith("opening:"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            m = date_wordy.search(line)
             current_metadata["opening_date"] = m.group(1) if m else None
-            current_metadata["deadline"] = None
+            # Reset deadlines on a new header block
+            current_metadata["deadline1"] = None
+            current_metadata["deadline2"] = None
             collecting = True
+            continue
 
-        elif collecting and lower.startswith("deadline"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
-            current_metadata["deadline"] = m.group(1) if m else None
+        # Deadline(s): — keep simple & robust
+        if collecting and lower.startswith("deadline"):
+            # Find ALL dates on the line; then decide 1 vs 2
+            dates = date_wordy.findall(line) if "deadline" in lower else []
+            if len(dates) >= 2:
+                # Two-stage case → put first two into Deadline1/Deadline2
+                current_metadata["deadline1"] = dates[0]
+                current_metadata["deadline2"] = dates[1]
+            elif len(dates) == 1:
+                # Single deadline → only Deadline1; do NOT set Deadline2
+                current_metadata["deadline1"] = dates[0]
+                current_metadata["deadline2"] = None
+            else:
+                # No date parsed on this line – leave as is
+                pass
+            continue
 
-        elif collecting and lower.startswith("destination"):
+        # Destination: (unchanged)
+        if collecting and lower.startswith("destination"):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
+            continue
 
-        elif collecting:
+        # When we encounter a topic code after collecting, bind the snapshot
+        if collecting:
             match = topic_pattern.match(line)
             if match:
                 code = match.group(1)
@@ -179,8 +210,8 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 # ========== Public API ==========
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
-    Orchestrates your working pipeline and returns a DataFrame that matches your current app's output.
-    No Streamlit here; just pure parsing.
+    Orchestrates your working pipeline and returns a DataFrame that matches your app's output,
+    now with Deadline1 and Deadline2 columns.
     """
     # Read bytes once, then work with a new BytesIO so downstream .read() works
     pdf_bytes = file_like.read()
@@ -202,7 +233,8 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
         "Opening Date": t.get("opening_date"),
-        "Deadline": t.get("deadline"),
+        "Deadline1": t.get("deadline1"),          # ← single or first deadline
+        "Deadline2": t.get("deadline2"),          # ← second stage (if any)
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
