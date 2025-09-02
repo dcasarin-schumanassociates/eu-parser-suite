@@ -3,6 +3,7 @@ from __future__ import annotations
 import io, time
 import pandas as pd
 import streamlit as st
+import plotly.express as px
 
 from parsers import horizon as horizon_parser
 from parsers import erasmus as erasmus_parser
@@ -20,7 +21,7 @@ st.markdown("Pick a **programme**, upload a **PDF**, and preview the parsed tabl
 
 programme = st.selectbox("Programme", options=list(PARSERS.keys()), index=0)
 
-col1, col2, col3 = st.columns([2,1,1])
+col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     uploaded = st.file_uploader("Upload work programme PDF", type=["pdf"])
 with col2:
@@ -54,37 +55,28 @@ if uploaded:
     st.download_button(
         label="⬇️ Download parsed Excel",
         data=output,
-        file_name=f"{programme.replace(' ','_').lower()}_parsed.xlsx",
+        file_name=f"{programme.replace(' ', '_').lower()}_parsed.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-else:
-    st.info("Select a programme and upload a PDF to begin.")
+    # --- Gantt chart ---
+    st.subheader("📅 Gantt (Calls Timeline)")
 
+    gantt_df = df.copy()
+    for c in ["Opening Date", "Deadline"]:
+        if c in gantt_df.columns:
+            gantt_df[c] = pd.to_datetime(gantt_df[c], errors="coerce")
 
-import plotly.express as px
+    gantt_df = gantt_df.dropna(subset=["Opening Date", "Deadline"])
 
-st.subheader("📅 Gantt (Calls Timeline)")
-
-# Make a copy and ensure dates are proper datetimes
-gantt_df = df.copy()
-for c in ["Opening Date", "Deadline"]:
-    if c in gantt_df.columns:
-        gantt_df[c] = pd.to_datetime(gantt_df[c], errors="coerce")
-
-# Keep only rows with both dates
-gantt_df = gantt_df.dropna(subset=["Opening Date", "Deadline"])
-
-# Optional: shorten very long titles for the y-axis (keeps tooltip full)
-def _shorten(s, n=90):
-    s = str(s) if pd.notna(s) else ""
-    return (s[:n] + "…") if len(s) > n else s
+    def _shorten(s, n=90):
+        s = str(s) if pd.notna(s) else ""
+        return (s[:n] + "…") if len(s) > n else s
 
     gantt_df["_TitleShort"] = gantt_df["Title"].apply(_shorten)
-    
-    # Pick a colour dimension if available; otherwise a single colour
+
     colour_dim = "Type of Action" if "Type of Action" in gantt_df.columns else None
-    
+
     fig = px.timeline(
         gantt_df,
         x_start="Opening Date",
@@ -94,21 +86,20 @@ def _shorten(s, n=90):
         hover_data={
             "_TitleShort": False,
             "Title": True,
-            "Code": True if "Code" in gantt_df.columns else False,
+            "Code": "Code" in gantt_df.columns,
             "Opening Date": True,
             "Deadline": True,
-            "Destination": True if "Destination" in gantt_df.columns else False,
-            "Type of Action": True if "Type of Action" in gantt_df.columns else False,
-            "TRL": True if "TRL" in gantt_df.columns else False,
-            "Call Name": True if "Call Name" in gantt_df.columns else False,
+            "Destination": "Destination" in gantt_df.columns,
+            "Type of Action": "Type of Action" in gantt_df.columns,
+            "TRL": "TRL" in gantt_df.columns,
+            "Call Name": "Call Name" in gantt_df.columns,
         },
     )
-    
-    # Gantt charts typically have the first task at the top
+
     fig.update_yaxes(autorange="reversed")
-    
-    # Make it scroll/zoom friendly
     fig.update_xaxes(rangeslider_visible=True)
-    
+
     st.plotly_chart(fig, use_container_width=True)
 
+else:
+    st.info("Select a programme and upload a PDF to begin.")
