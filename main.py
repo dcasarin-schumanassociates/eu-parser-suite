@@ -39,9 +39,9 @@ if uploaded:
         )
 
     # Gentle normalisation for preview only (won’t break your columns)
-    for c in ["Opening Date","Deadline"]:
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], dayfirst=True, errors="coerce")
+    for c in ["Opening Date", "Deadline 1", "Deadline 2", "Deadline"]:
+    if c in df.columns:
+        df[c] = pd.to_datetime(df[c], dayfirst=True, errors="coerce")
 
     st.subheader("Preview")
     st.dataframe(df.head(20), use_container_width=True)
