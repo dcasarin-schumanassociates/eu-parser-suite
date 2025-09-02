@@ -59,47 +59,54 @@ if uploaded:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-    # --- Gantt chart ---
-    st.subheader("📅 Gantt (Calls Timeline)")
+# --- Gantt chart ---
+st.subheader("📅 Gantt (Calls Timeline)")
 
-    gantt_df = df.copy()
-    for c in ["Opening Date", "Deadline"]:
-        if c in gantt_df.columns:
-            gantt_df[c] = pd.to_datetime(gantt_df[c], errors="coerce")
+gantt_df = df.copy()
+for c in ["Opening Date", "Deadline"]:
+    if c in gantt_df.columns:
+        gantt_df[c] = pd.to_datetime(gantt_df[c], errors="coerce")
 
-    gantt_df = gantt_df.dropna(subset=["Opening Date", "Deadline"])
+gantt_df = gantt_df.dropna(subset=["Opening Date", "Deadline"])
 
-    def _shorten(s, n=90):
-        s = str(s) if pd.notna(s) else ""
-        return (s[:n] + "…") if len(s) > n else s
+def _shorten(s, n=90):
+    s = str(s) if pd.notna(s) else ""
+    return (s[:n] + "…") if len(s) > n else s
 
-    gantt_df["_TitleShort"] = gantt_df["Title"].apply(_shorten)
+gantt_df["_TitleShort"] = gantt_df["Title"].apply(_shorten)
+colour_dim = "Type of Action" if "Type of Action" in gantt_df.columns else None
 
-    colour_dim = "Type of Action" if "Type of Action" in gantt_df.columns else None
+fig = px.timeline(
+    gantt_df,
+    x_start="Opening Date",
+    x_end="Deadline",
+    y="_TitleShort",
+    color=colour_dim,
+    hover_data={
+        "_TitleShort": False,
+        "Title": True,
+        "Code": "Code" in gantt_df.columns,
+        "Opening Date": True,
+        "Deadline": True,
+        "Destination": "Destination" in gantt_df.columns,
+        "Type of Action": "Type of Action" in gantt_df.columns,
+        "TRL": "TRL" in gantt_df.columns,
+        "Call Name": "Call Name" in gantt_df.columns,
+    },
+)
 
-    fig = px.timeline(
-        gantt_df,
-        x_start="Opening Date",
-        x_end="Deadline",
-        y="_TitleShort",
-        color=colour_dim,
-        hover_data={
-            "_TitleShort": False,
-            "Title": True,
-            "Code": "Code" in gantt_df.columns,
-            "Opening Date": True,
-            "Deadline": True,
-            "Destination": "Destination" in gantt_df.columns,
-            "Type of Action": "Type of Action" in gantt_df.columns,
-            "TRL": "TRL" in gantt_df.columns,
-            "Call Name": "Call Name" in gantt_df.columns,
-        },
-    )
+# Reverse y-axis (so first topic is at the top)
+fig.update_yaxes(autorange="reversed")
 
-    fig.update_yaxes(autorange="reversed")
-    fig.update_xaxes(rangeslider_visible=True)
+# Add range slider for scrolling/zooming
+fig.update_xaxes(rangeslider_visible=True)
 
-    st.plotly_chart(fig, use_container_width=True)
+# 🔑 Increase row height
+fig.update_traces(width=0.6)  # thicker bars (0.6 = 60% of row height)
+fig.update_layout(
+    bargap=0.4,                # space between bars
+    yaxis=dict(tickfont=dict(size=11)),  # optional: bigger text
+)
 
-else:
-    st.info("Select a programme and upload a PDF to begin.")
+st.plotly_chart(fig, use_container_width=True)
+
