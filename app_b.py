@@ -77,7 +77,7 @@ def make_gantt(df: pd.DataFrame):
     if g.empty:
         return None
 
-    # Use short labels (codes) for clarity on y-axis
+    # Short labels (codes) for y-axis
     g = g.assign(
         _label=g["code"].fillna("").astype(str)
     )
@@ -88,14 +88,53 @@ def make_gantt(df: pd.DataFrame):
         x_end="deadline",
         y="_label",
         color="programme",
-        hover_data=[
-            "code", "title", "opening_date", "deadline",
-            "budget_per_project_eur", "total_budget_eur",
-            "type_of_action", "trl",
-            "destination_or_strand", "version_label", "source_filename"
-        ],
     )
     fig.update_yaxes(autorange="reversed")
+
+    # Scale height dynamically
+    row_height = 40
+    chart_height = max(600, len(g) * row_height)
+
+    # Custom hovertemplate
+    fig.update_traces(
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"   # Title in bold
+            "Budget: €%{customdata[1]:,.0f}<br>"
+            "Type: %{customdata[2]}<br>"
+            "Open: %{x|%d %b %Y} → Close: %{x_end|%d %b %Y}<extra></extra>"
+        ),
+        # Pass only the fields we want as customdata
+        customdata=g[["title", "budget_per_project_eur", "type_of_action"]].values,
+    )
+
+    # Layout tweaks
+    fig.update_layout(
+        height=chart_height,
+        margin=dict(l=10, r=10, t=10, b=10),
+        bargap=0.4,
+        plot_bgcolor="white",
+
+        # Bottom axis with monthly ticks
+        xaxis=dict(
+            dtick="M1",
+            tickformat="%b %Y",
+            showgrid=True,
+            gridcolor="rgba(180,180,180,0.6)",
+            gridwidth=1,
+        ),
+
+        # Top mirrored axis
+        xaxis2=dict(
+            overlaying="x",
+            side="top",
+            dtick="M1",
+            tickformat="%b %Y",
+            showgrid=False,
+        ),
+    )
+
+    return fig
+
 
     # Scale height with row count
     row_height = 40
