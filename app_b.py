@@ -81,7 +81,7 @@ def make_gantt(df: pd.DataFrame):
         g,
         x_start="opening_date",
         x_end="deadline",
-        y="cluster" if "cluster" in g.columns else "programme",
+        y="title" if "title" in g.columns else "programme",
         color="programme",
         hover_data=["code", "title", "opening_date", "deadline", "budget_per_project_eur",
                     "total_budget_eur", "type_of_action", "trl",
