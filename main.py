@@ -76,37 +76,37 @@ def _shorten(s, n=90):
     s = str(s) if pd.notna(s) else ""
     return (s[:n] + "…") if len(s) > n else s
 
-gantt_df["_TitleShort"] = gantt_df["Title"].apply(_shorten)
-
-# Pick a colour dimension if available; otherwise a single colour
-colour_dim = "Type of Action" if "Type of Action" in gantt_df.columns else None
-
-fig = px.timeline(
-    gantt_df,
-    x_start="Opening Date",
-    x_end="Deadline",
-    y="_TitleShort",
-    color=colour_dim,
-    hover_data={
-        "_TitleShort": False,
-        "Title": True,
-        "Code": True if "Code" in gantt_df.columns else False,
-        "Opening Date": True,
-        "Deadline": True,
-        "Destination": True if "Destination" in gantt_df.columns else False,
-        "Type of Action": True if "Type of Action" in gantt_df.columns else False,
-        "TRL": True if "TRL" in gantt_df.columns else False,
-        "Call Name": True if "Call Name" in gantt_df.columns else False,
-    },
-)
-
-# Gantt charts typically have the first task at the top
-fig.update_yaxes(autorange="reversed")
-
-# Make it scroll/zoom friendly
-fig.update_xaxes(rangeslider_visible=True)
-
-st.plotly_chart(fig, use_container_width=True)
+    gantt_df["_TitleShort"] = gantt_df["Title"].apply(_shorten)
+    
+    # Pick a colour dimension if available; otherwise a single colour
+    colour_dim = "Type of Action" if "Type of Action" in gantt_df.columns else None
+    
+    fig = px.timeline(
+        gantt_df,
+        x_start="Opening Date",
+        x_end="Deadline",
+        y="_TitleShort",
+        color=colour_dim,
+        hover_data={
+            "_TitleShort": False,
+            "Title": True,
+            "Code": True if "Code" in gantt_df.columns else False,
+            "Opening Date": True,
+            "Deadline": True,
+            "Destination": True if "Destination" in gantt_df.columns else False,
+            "Type of Action": True if "Type of Action" in gantt_df.columns else False,
+            "TRL": True if "TRL" in gantt_df.columns else False,
+            "Call Name": True if "Call Name" in gantt_df.columns else False,
+        },
+    )
+    
+    # Gantt charts typically have the first task at the top
+    fig.update_yaxes(autorange="reversed")
+    
+    # Make it scroll/zoom friendly
+    fig.update_xaxes(rangeslider_visible=True)
+    
+    st.plotly_chart(fig, use_container_width=True)
 
 else:
     st.info("Select a programme and upload a PDF to begin.")
