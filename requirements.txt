@@ -1,5 +1,4 @@
-streamlit>=1.36
-pandas>=2.2
-openpyxl>=3.1
-pymupdf>=1.24
-python-dateutil>=2.9
+streamlit
+pymupdf        # aka fitz
+pandas
+openpyxl       # for Excel export
