@@ -202,7 +202,8 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
         "Opening Date": t.get("opening_date"),
-        "Deadline": t.get("deadline"),
+        "Deadline 1": t.get("deadline"),          # renamed
+        "Deadline 2": t.get("deadline_2"),        # new column (will be None/empty for now)
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
@@ -214,10 +215,10 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
-        # provenance (optional; blank for now – add if you like)
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
     } for t in enriched])
+
 
     return df
