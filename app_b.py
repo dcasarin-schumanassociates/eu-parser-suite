@@ -77,9 +77,8 @@ def make_gantt(df: pd.DataFrame):
     if g.empty:
         return None
 
-    # Use short y labels (codes) for clarity
     g = g.assign(
-        _label=g["code"].fillna("").astype(str)
+        _label=g["code"].fillna("").astype(str)  # short label for clarity
     )
 
     fig = px.timeline(
@@ -96,6 +95,24 @@ def make_gantt(df: pd.DataFrame):
         ],
     )
     fig.update_yaxes(autorange="reversed")
+
+    # Scale height with row count
+    row_height = 40
+    chart_height = max(600, len(g) * row_height)
+
+    fig.update_layout(
+        height=chart_height,
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(
+            rangeslider=dict(visible=True),
+            showgrid=True,              # ensure grid lines are shown
+            gridcolor="rgba(200,200,200,0.5)",  # light grey with some opacity
+            gridwidth=1                 # make them thicker (default is 0.5)
+        ),
+        plot_bgcolor="white"  # white background makes lines stand out
+    )
+    return fig
+
 
     # Scale height automatically
     row_height = 40
