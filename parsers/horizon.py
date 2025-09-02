@@ -17,25 +17,6 @@ def normalize_text(text: str) -> str:
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     text = re.sub(r"\xa0", " ", text)
     text = re.sub(r"[ \t]+", " ", text)
-    text = # parsers/horizon.py
-from __future__ import annotations
-import re
-from io import BytesIO
-from typing import Dict, Any, List
-import fitz  # PyMuPDF
-import pandas as pd
-
-# ========== PDF Parsing ==========
-def extract_text_from_pdf(file_like: BytesIO) -> str:
-    # file_like should be positioned at start
-    with fitz.open(stream=file_like.read(), filetype="pdf") as doc:
-        return "\n".join(page.get_text() for page in doc)
-
-# ========== Utility ==========
-def normalize_text(text: str) -> str:
-    text = text.replace('\r\n', '\n').replace('\r', '\n')
-    text = re.sub(r"\xa0", " ", text)
-    text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n+", "\n", text)
     return text.strip()
 
