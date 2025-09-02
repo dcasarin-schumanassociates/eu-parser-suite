@@ -1,4 +1,16 @@
+# src/apps/parser_app.py
 from __future__ import annotations
+
+# --- Robust import bootstrap (works locally & on Streamlit Cloud) ---
+import sys
+from pathlib import Path
+
+# Project root = two levels up from this file (eu-parser-suite/)
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+# -------------------------------------------------------------------
+
 import io
 import pandas as pd
 import streamlit as st
