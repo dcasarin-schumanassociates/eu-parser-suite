@@ -1,12 +1,12 @@
 # src/apps/parser_app.py
 from __future__ import annotations
 
-# --- Robust import bootstrap (works locally & on Streamlit Cloud) ---
+# --- Robust import bootstrap (fix for Streamlit Cloud) ---
 import sys
 from pathlib import Path
 
-# Project root = two levels up from this file (eu-parser-suite/)
-ROOT = Path(__file__).resolve().parents[2]
+# Project root = repo root (eu-parser-suite/)
+ROOT = Path(__file__).resolve().parents[1]  # <-- was 2 before, should be 1
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 # -------------------------------------------------------------------
