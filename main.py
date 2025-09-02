@@ -58,6 +58,10 @@ if uploaded:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+else:
+    st.info("Select a programme and upload a PDF to begin.")
+
+
 import plotly.express as px
 
 st.subheader("📅 Gantt (Calls Timeline)")
@@ -108,5 +112,3 @@ def _shorten(s, n=90):
     
     st.plotly_chart(fig, use_container_width=True)
 
-else:
-    st.info("Select a programme and upload a PDF to begin.")
