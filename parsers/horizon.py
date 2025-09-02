@@ -8,7 +8,6 @@ import pandas as pd
 
 # ========== PDF Parsing ==========
 def extract_text_from_pdf(file_like: BytesIO) -> str:
-    # file_like should be positioned at start
     with fitz.open(stream=file_like.read(), filetype="pdf") as doc:
         return "\n".join(page.get_text() for page in doc)
 
@@ -140,49 +139,98 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
         )
     }
 
+# ========== Metadata (Opening / Deadlines / Destination) ==========
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Keeps single-deadline behaviour but writes into 'deadline1'.
+    Also detects two-stage forms like:
+      'Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)'
+    and fills deadline1 / deadline2 accordingly.
+    """
     lines = normalize_text(text).splitlines()
 
     metadata_map: Dict[str, Dict[str, Any]] = {}
-    current_metadata = {
+    current = {
         "opening_date": None,
-        "deadline": None,
+        "deadline1": None,
+        "deadline2": None,
         "destination": None
     }
 
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
+
+    # Header variants (lenient startswith)
+    def is_opening(line: str) -> bool:
+        return line.lower().startswith(("opening:", "opening date:", "opens:"))
+
+    def is_deadline(line: str) -> bool:
+        return line.lower().startswith(("deadline", "deadlines", "deadline(s):", "cut-off", "cut off"))
+
+    def is_destination(line: str) -> bool:
+        return line.lower().startswith("destination")
+
+    # Date patterns
+    months = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
+    date_wordy = re.compile(rf"\b(\d{{1,2}})\s+({months})\s+(\d{{4}})\b", re.IGNORECASE)   # 23 Sep 2025 / 23 September 2025
+    date_iso   = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")                                 # 2025-09-23
+    date_slash = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")                             # 23/09/2025
+
+    def find_dates(s: str) -> List[str]:
+        out: List[str] = []
+        out += [f"{d} {m} {y}" for d, m, y in date_wordy.findall(s)]
+        out += [f"{y}-{m}-{d}" for y, m, d in date_iso.findall(s)]
+        for d, m, y in date_slash.findall(s):  # assume dd/mm/yyyy
+            out.append(f"{int(y):04d}-{int(m):02d}-{int(d):02d}")
+        # de-dup preserve order
+        seen = set()
+        dedup = []
+        for v in out:
+            if v not in seen:
+                seen.add(v)
+                dedup.append(v)
+        return dedup
+
     collecting = False
     for line in lines:
-        lower = line.lower()
-
-        if lower.startswith("opening:"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
-            current_metadata["opening_date"] = m.group(1) if m else None
-            current_metadata["deadline"] = None
+        if is_opening(line):
+            dates = find_dates(line)
+            current["opening_date"] = dates[0] if dates else None
             collecting = True
+            continue
 
-        elif collecting and lower.startswith("deadline"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
-            current_metadata["deadline"] = m.group(1) if m else None
+        if is_deadline(line):
+            dates = find_dates(line)
+            # Keep legacy "one deadline" behaviour as Deadline1
+            current["deadline1"] = dates[0] if dates else None
+            # If a second date is present (two-stage), capture as Deadline2
+            current["deadline2"] = dates[1] if len(dates) > 1 else None
+            collecting = True
+            continue
 
-        elif collecting and lower.startswith("destination"):
-            current_metadata["destination"] = line.split(":", 1)[-1].strip()
+        if is_destination(line):
+            current["destination"] = line.split(":", 1)[-1].strip()
+            collecting = True
+            continue
 
-        elif collecting:
-            match = topic_pattern.match(line)
-            if match:
-                code = match.group(1)
-                metadata_map[code] = current_metadata.copy()
+        if collecting:
+            m = topic_pattern.match(line)
+            if m:
+                code = m.group(1)
+                metadata_map[code] = {
+                    "opening_date": current.get("opening_date"),
+                    "deadline1": current.get("deadline1"),
+                    "deadline2": current.get("deadline2"),
+                    "destination": current.get("destination"),
+                }
 
     return metadata_map
 
 # ========== Public API ==========
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
-    Orchestrates your working pipeline and returns a DataFrame that matches your current app's output.
-    No Streamlit here; just pure parsing.
+    Returns a DataFrame equivalent to your app's output,
+    but with 'Deadline1' and 'Deadline2' columns.
     """
-    # Read bytes once, then work with a new BytesIO so downstream .read() works
     pdf_bytes = file_like.read()
     raw_text = extract_text_from_pdf(BytesIO(pdf_bytes))
 
@@ -202,7 +250,8 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
         "Opening Date": t.get("opening_date"),
-        "Deadline": t.get("deadline"),
+        "Deadline1": t.get("deadline1"),           # ← single or first deadline
+        "Deadline2": t.get("deadline2"),           # ← second deadline when present
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
@@ -214,7 +263,6 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
-        # provenance (optional; blank for now – add if you like)
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
