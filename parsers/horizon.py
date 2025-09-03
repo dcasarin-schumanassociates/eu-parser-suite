@@ -243,6 +243,88 @@ def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: in
 
     return None
 
+# Topic code (same as in extract_metadata_blocks)
+TOPIC_CODE_RE = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
+
+# Accept: Destination, Destination 1, Destination 2, ... (used by your explicit path)
+DEST_LINE_RE = re.compile(r"^\s*destination(?:\s*\d+)?\s*:\s*(.*)$", re.IGNORECASE)
+
+# Used to detect a boundary where a new section starts; keeps us from over-capturing
+SECTION_START_RE = re.compile(
+    r"^\s*(opening(?:\s*date)?\s*:|deadline|destination\s*:|destination\s*\d+\s*:|horizon-[a-z0-9\-]+:)",
+    re.IGNORECASE
+)
+
+def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: int = 8) -> str | None:
+    """
+    Existing explicit-scan for 'Destination...' lines (kept as-is).
+    """
+    for k in range(start_idx, min(start_idx + max_ahead, len(lines))):
+        line = lines[k].strip()
+        m = DEST_LINE_RE.match(line)
+        if not m:
+            continue
+
+        dest = m.group(1).strip()
+
+        # optional 1-line continuation, if the next line doesn't start a new section
+        nxt_idx = k + 1
+        if nxt_idx < len(lines):
+            nxt = lines[nxt_idx].strip()
+            if nxt and not SECTION_START_RE.match(nxt):
+                dest = (dest + " " + nxt).strip()
+
+        return dest or None
+    return None
+
+def _capture_interstitial_destination(lines: List[str], date_idx: int, *, max_span: int = 12) -> str | None:
+    """
+    Fallback: capture the free text between the date block (Opening/Deadline)
+    and the next topic code ('HORIZON-...:').
+
+    Heuristics to avoid false positives:
+      - stop at the next section/topic header
+      - drop table headers (Topics/Type of Action/Budgets/Expected EU contribution/Indicative number)
+      - drop pure numeric / budget lines, and RIA/IA markers
+      - require letters >> digits and reasonable length
+    """
+    # find the next topic boundary
+    end = min(date_idx + 1 + max_span, len(lines))
+    for k in range(date_idx + 1, end):
+        if TOPIC_CODE_RE.match(lines[k].strip()):
+            end = k
+            break
+
+    # collect candidate lines
+    buf: List[str] = []
+    for raw in lines[date_idx + 1:end]:
+        s = raw.strip()
+        if not s:
+            continue
+        if TOPIC_CODE_RE.match(s) or SECTION_START_RE.match(s):
+            break
+        if re.match(r"^(topics|type\s+of\s+action|budgets|expected\s+eu\s+contribution|indicative\s+number)", s, re.IGNORECASE):
+            continue
+        if re.match(r"^(RIA|IA)\b", s):            # action type lines
+            continue
+        if re.match(r"^[\d\.\, ]+$", s):           # numeric-only lines
+            continue
+        buf.append(s)
+        if len(" ".join(buf)) > 300:               # avoid runaway capture
+            break
+
+    candidate = " ".join(buf).strip()
+    if not candidate:
+        return None
+
+    # final sanity checks
+    letters = sum(ch.isalpha() for ch in candidate)
+    digits  = sum(ch.isdigit() for ch in candidate)
+    if len(candidate) >= 15 and letters > max(1, 2 * digits) and "HORIZON-" not in candidate.upper():
+        return candidate
+    return None
+
+
 # =============================================================================
 # METADATA EXTRACTION (opening date, deadlines, destination) PER TOPIC
 #   - Preserves original single-deadline behaviour
@@ -252,20 +334,7 @@ def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: in
 
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
-
-    metadata_map: Dict[str, Dict[str, Any]] = {}
-    current_metadata: Dict[str, Any] = {
-        "opening_date": None,
-        "deadline": None,          # single-stage (existing behaviour)
-        "deadline_stage1": None,   # only for two-stage topics
-        "deadline_stage2": None,   # only for two-stage topics
-        "destination": None,
-        "is_two_stage": False,     # boolean flag
-    }
-
-    topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
-    collecting = False
-
+    ...
     for idx, raw in enumerate(lines):
         line = raw.strip()
         next1 = lines[idx + 1].strip() if idx + 1 < len(lines) else ""
@@ -285,45 +354,50 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             current_metadata["is_two_stage"] = False
             collecting = True
 
-            # NEW: try to capture a Destination near the Opening block
+            # (A) explicit Destination scan near Opening
             if current_metadata["destination"] is None:
                 maybe_dest = _scan_forward_destination(lines, idx + 1)
                 if maybe_dest:
                     current_metadata["destination"] = maybe_dest
+            # (B) NEW: interstitial fallback if still empty
+            if current_metadata["destination"] is None:
+                maybe_free = _capture_interstitial_destination(lines, idx)
+                if maybe_free:
+                    current_metadata["destination"] = maybe_free
             continue
 
         # --- Deadline(s) ---
         if collecting and DEADLINE_TRIGGER_RE.match(line):
-            # original single-date detection with next-line fallback
             deadline = _find_first_date_in([line, next1])
             current_metadata["deadline"] = deadline
 
-            # two-stage parse (line + next)
             extra = parse_two_stage_deadlines(line_plus_next)
             if extra:
                 current_metadata.update(extra)
 
-            # NEW: if we still don't have a destination, scan forward now too
+            # explicit Destination scan near Deadline
             if current_metadata["destination"] is None:
                 maybe_dest = _scan_forward_destination(lines, idx + 1)
                 if maybe_dest:
                     current_metadata["destination"] = maybe_dest
+            # NEW: interstitial fallback (date block → next topic code)
+            if current_metadata["destination"] is None:
+                maybe_free = _capture_interstitial_destination(lines, idx)
+                if maybe_free:
+                    current_metadata["destination"] = maybe_free
             continue
 
-        # --- Destination (direct match, original behaviour) ---
+        # --- Destination (explicit line) ---
         if collecting and DEST_TRIGGER_RE.match(line):
-            # if explicitly present on this very line, keep your original rule
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
             continue
 
-        # --- Topic boundary: attach snapshot to this code (first-write-wins) ---
+        # --- Topic boundary: attach snapshot (first-write-wins) ---
         if collecting:
-            match = topic_pattern.match(line)
+            match = TOPIC_CODE_RE.match(line)
             if match:
                 code = match.group(1)
                 to_save = current_metadata.copy()
-
-                # Only attach two-stage data to '-two-stage' topics
                 if "-two-stage" in code.lower():
                     to_save["is_two_stage"] = bool(
                         to_save.get("deadline_stage1") and to_save.get("deadline_stage2")
@@ -334,10 +408,10 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                     to_save["deadline_stage2"] = None
 
                 key = code.upper()
-                if key not in metadata_map:  # first-write-wins
+                if key not in metadata_map:
                     metadata_map[key] = to_save
-
     return metadata_map
+
 
 
 # =============================================================================
