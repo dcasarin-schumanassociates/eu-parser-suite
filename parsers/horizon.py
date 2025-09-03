@@ -296,10 +296,22 @@ def _capture_interstitial_destination(lines: List[str], date_idx: int, *, max_sp
 #   - Adds optional two-stage dates guarded by code containing '-two-stage'
 #   - Adds boolean is_two_stage
 # =============================================================================
-
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
-    ...
+
+    metadata_map: Dict[str, Dict[str, Any]] = {}
+    current_metadata: Dict[str, Any] = {
+        "opening_date": None,
+        "deadline": None,          # single-stage (existing behaviour)
+        "deadline_stage1": None,   # only for two-stage topics
+        "deadline_stage2": None,   # only for two-stage topics
+        "destination": None,
+        "is_two_stage": False,     # boolean flag
+    }
+
+    topic_pattern = TOPIC_CODE_RE  # alias for readability
+    collecting = False
+
     for idx, raw in enumerate(lines):
         line = raw.strip()
         next1 = lines[idx + 1].strip() if idx + 1 < len(lines) else ""
@@ -311,7 +323,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             opening_date = _find_first_date_in([line, next1, next2])
             current_metadata["opening_date"] = opening_date
 
-            # reset per-call metadata
+            # Reset per-call metadata
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
@@ -324,7 +336,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                 maybe_dest = _scan_forward_destination(lines, idx + 1)
                 if maybe_dest:
                     current_metadata["destination"] = maybe_dest
-            # (B) NEW: interstitial fallback if still empty
+            # (B) interstitial fallback if still empty
             if current_metadata["destination"] is None:
                 maybe_free = _capture_interstitial_destination(lines, idx)
                 if maybe_free:
@@ -333,19 +345,21 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 
         # --- Deadline(s) ---
         if collecting and DEADLINE_TRIGGER_RE.match(line):
+            # Original behaviour (first date), with next-line fallback
             deadline = _find_first_date_in([line, next1])
             current_metadata["deadline"] = deadline
 
+            # Two-stage parse (handle wrapping by parsing line + next)
             extra = parse_two_stage_deadlines(line_plus_next)
             if extra:
                 current_metadata.update(extra)
 
-            # explicit Destination scan near Deadline
+            # Explicit Destination scan near Deadline
             if current_metadata["destination"] is None:
                 maybe_dest = _scan_forward_destination(lines, idx + 1)
                 if maybe_dest:
                     current_metadata["destination"] = maybe_dest
-            # NEW: interstitial fallback (date block → next topic code)
+            # Interstitial fallback (date block → next topic code)
             if current_metadata["destination"] is None:
                 maybe_free = _capture_interstitial_destination(lines, idx)
                 if maybe_free:
@@ -359,10 +373,12 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 
         # --- Topic boundary: attach snapshot (first-write-wins) ---
         if collecting:
-            match = TOPIC_CODE_RE.match(line)
+            match = topic_pattern.match(line)
             if match:
                 code = match.group(1)
                 to_save = current_metadata.copy()
+
+                # Only attach two-stage data to '-two-stage' topics
                 if "-two-stage" in code.lower():
                     to_save["is_two_stage"] = bool(
                         to_save.get("deadline_stage1") and to_save.get("deadline_stage2")
@@ -373,9 +389,11 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                     to_save["deadline_stage2"] = None
 
                 key = code.upper()
-                if key not in metadata_map:
+                if key not in metadata_map:  # first-write-wins
                     metadata_map[key] = to_save
+
     return metadata_map
+
 
 # =============================================================================
 # DATE NORMALISATION (for ISO-only output columns)
@@ -428,7 +446,6 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         }
         for topic in topic_blocks
     ]
-
 
     df = pd.DataFrame([{
         "Code": t["code"],
