@@ -170,23 +170,30 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =============================================================================
-# DEADLINE PARSING HELPERS (two-stage; keeps original single-date detection elsewhere)
+# DEADLINE & DESTINATION HELPERS
+#   - Keeps original single-date detection (deadline)
+#   - Adds flexible opening/deadline triggers + nearby destination scans
+#   - Adds interstitial destination fallback (text between dates and first topic)
 # =============================================================================
 
-DATE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}\b")  # 23 Sep 2025 / 23 Sept. 2025 / 23 September 2025
+# Dates like: 23 Sep 2025 / 23 Sept. 2025 / 23 September 2025
+DATE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}\b")
+
+# Triggers with optional spacing/case variants
 OPENING_TRIGGER_RE  = re.compile(r"^\s*opening(?:\s*date)?\s*:\s*", re.IGNORECASE)
 DEADLINE_TRIGGER_RE = re.compile(r"^\s*deadline", re.IGNORECASE)
 DEST_TRIGGER_RE     = re.compile(r"^\s*destination\s*:", re.IGNORECASE)
 
 def _find_first_date_in(lines: List[str]) -> str | None:
-    """Return first date string found across a list of lines, else None."""
+    """Return first date string found across the given lines; else None."""
     for ln in lines:
         m = DATE_RE.search(ln)
         if m:
             return m.group(0)
     return None
 
-# Example: "Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)"
+# Two-stage deadlines like:
+# "Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)"
 DATE_TOKEN = r"\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}"
 TWO_STAGE_DEADLINES_RE = re.compile(
     rf"deadline\(s\)\s*:\s*"
@@ -198,60 +205,20 @@ TWO_STAGE_DEADLINES_RE = re.compile(
 def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
     """
     Return {'deadline_stage1': 'DD Mon YYYY', 'deadline_stage2': 'DD Mon YYYY'}
-    if a two-stage pattern is present on the given line; otherwise {}.
+    if a two-stage pattern is present in the given string; otherwise {}.
     """
     m = TWO_STAGE_DEADLINES_RE.search(line)
     if not m:
         return {}
-    # Only dates; ignore labels
-    return {
-        "deadline_stage1": m.group(1),
-        "deadline_stage2": m.group(3),
-    }
+    return {"deadline_stage1": m.group(1), "deadline_stage2": m.group(3)}
 
-# Accept "Destination", "Destination 1", "Destination 2", ... (case-insensitive)
-DEST_LINE_RE = re.compile(r"^\s*destination(?:\s*\d+)?\s*:\s*(.*)$", re.IGNORECASE)
-
-SECTION_START_RE = re.compile(
-    r"^\s*(opening(?:\s*date)?\s*:|deadline|destination\s*:|destination\s*\d+\s*:|horizon-[a-z0-9\-]+:)",
-    re.IGNORECASE
-)
-
-def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: int = 8) -> str | None:
-    """
-    Starting from start_idx, scan forward up to max_ahead lines to find a Destination line.
-    If found, return the destination text; also capture a single wrapped continuation line
-    if it does not start a new section/topic.
-    """
-    for k in range(start_idx, min(start_idx + max_ahead, len(lines))):
-        line = lines[k].strip()
-        m = DEST_LINE_RE.match(line)
-        if not m:
-            continue
-
-        dest = m.group(1).strip()
-
-        # Attempt to capture 1 continuation line if it's a soft wrap (common in PDFs)
-        nxt_idx = k + 1
-        if nxt_idx < len(lines):
-            nxt = lines[nxt_idx].strip()
-            # stop if next line starts a new section/topic or is empty
-            if nxt and not SECTION_START_RE.match(nxt):
-                dest = (dest + " " + nxt).strip()
-
-        return dest or None
-
-    return None
-# Already in your file:
-# DATE_RE, OPENING_TRIGGER_RE, DEADLINE_TRIGGER_RE, DEST_TRIGGER_RE, etc.
-
-# Topic code (same as in extract_metadata_blocks)
+# Topic header code (used as a boundary for the interstitial fallback)
 TOPIC_CODE_RE = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
 
-# Accept: Destination, Destination 1, Destination 2, ... (used by your explicit path)
+# Explicit "Destination" line (with optional numbering: "Destination 1:")
 DEST_LINE_RE = re.compile(r"^\s*destination(?:\s*\d+)?\s*:\s*(.*)$", re.IGNORECASE)
 
-# Used to detect a boundary where a new section starts; keeps us from over-capturing
+# Section starts that should stop continuation (Opening/Deadline/Destination/Topic)
 SECTION_START_RE = re.compile(
     r"^\s*(opening(?:\s*date)?\s*:|deadline|destination\s*:|destination\s*\d+\s*:|horizon-[a-z0-9\-]+:)",
     re.IGNORECASE
@@ -259,7 +226,8 @@ SECTION_START_RE = re.compile(
 
 def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: int = 8) -> str | None:
     """
-    Existing explicit-scan for 'Destination...' lines (kept as-is).
+    Scan forward up to 'max_ahead' lines for an explicit 'Destination...' line.
+    Also capture a single wrapped continuation line if the next line doesn't start a new section.
     """
     for k in range(start_idx, min(start_idx + max_ahead, len(lines))):
         line = lines[k].strip()
@@ -269,7 +237,7 @@ def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: in
 
         dest = m.group(1).strip()
 
-        # optional 1-line continuation, if the next line doesn't start a new section
+        # Capture one soft-wrapped continuation line
         nxt_idx = k + 1
         if nxt_idx < len(lines):
             nxt = lines[nxt_idx].strip()
@@ -281,23 +249,17 @@ def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: in
 
 def _capture_interstitial_destination(lines: List[str], date_idx: int, *, max_span: int = 12) -> str | None:
     """
-    Fallback: capture the free text between the date block (Opening/Deadline)
-    and the next topic code ('HORIZON-...:').
-
-    Heuristics to avoid false positives:
-      - stop at the next section/topic header
-      - drop table headers (Topics/Type of Action/Budgets/Expected EU contribution/Indicative number)
-      - drop pure numeric / budget lines, and RIA/IA markers
-      - require letters >> digits and reasonable length
+    Fallback: capture the free text between the date block (Opening/Deadline) and
+    the next topic code ('HORIZON-...:'). Applies several heuristics to avoid false positives.
     """
-    # find the next topic boundary
+    # Find the next topic boundary
     end = min(date_idx + 1 + max_span, len(lines))
     for k in range(date_idx + 1, end):
         if TOPIC_CODE_RE.match(lines[k].strip()):
             end = k
             break
 
-    # collect candidate lines
+    # Collect candidate lines, skipping headers/numeric/action-type lines
     buf: List[str] = []
     for raw in lines[date_idx + 1:end]:
         s = raw.strip()
@@ -307,24 +269,26 @@ def _capture_interstitial_destination(lines: List[str], date_idx: int, *, max_sp
             break
         if re.match(r"^(topics|type\s+of\s+action|budgets|expected\s+eu\s+contribution|indicative\s+number)", s, re.IGNORECASE):
             continue
-        if re.match(r"^(RIA|IA)\b", s):            # action type lines
+        if re.match(r"^(RIA|IA)\b", s):            # action types
             continue
         if re.match(r"^[\d\.\, ]+$", s):           # numeric-only lines
             continue
+
         buf.append(s)
-        if len(" ".join(buf)) > 300:               # avoid runaway capture
+        if len(" ".join(buf)) > 300:               # conservative bound
             break
 
     candidate = " ".join(buf).strip()
     if not candidate:
         return None
 
-    # final sanity checks
+    # Sanity checks: looks like prose, not a code/table fragment
     letters = sum(ch.isalpha() for ch in candidate)
     digits  = sum(ch.isdigit() for ch in candidate)
     if len(candidate) >= 15 and letters > max(1, 2 * digits) and "HORIZON-" not in candidate.upper():
         return candidate
     return None
+
 
 # =============================================================================
 # METADATA EXTRACTION (opening date, deadlines, destination) PER TOPIC
