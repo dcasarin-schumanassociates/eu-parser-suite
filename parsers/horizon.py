@@ -178,11 +178,14 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 
 # Dates like: 23 Sep 2025 / 23 Sept. 2025 / 23 September 2025
 DATE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}\b")
-DEST_SEP = r"[-–—:]"  # reusable separator charclass
+
+# Accept colon or dash (ASCII '-', en dash '–', em dash '—') after 'Destination'
+DEST_SEP = r"[-–—:]"
 
 # Triggers with optional spacing/case variants
 OPENING_TRIGGER_RE  = re.compile(r"^\s*opening(?:\s*date)?\s*:\s*", re.IGNORECASE)
 DEADLINE_TRIGGER_RE = re.compile(r"^\s*deadline", re.IGNORECASE)
+# Updated to accept ':' or any dash after 'Destination' (+ optional number)
 DEST_TRIGGER_RE     = re.compile(rf"^\s*destination(?:\s*\d+)?\s*{DEST_SEP}\s*", re.IGNORECASE)
 
 def _find_first_date_in(lines: List[str]) -> str | None:
@@ -296,6 +299,7 @@ def _capture_interstitial_destination(lines: List[str], date_idx: int, *, max_sp
 #   - Preserves original single-deadline behaviour
 #   - Adds optional two-stage dates guarded by code containing '-two-stage'
 #   - Adds boolean is_two_stage
+#   - First-write-wins and case-normalised keys for robust merge
 # =============================================================================
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
@@ -369,7 +373,12 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 
         # --- Destination (explicit line) ---
         if collecting and DEST_TRIGGER_RE.match(line):
-            current_metadata["destination"] = line.split(":", 1)[-1].strip()
+            # Keep explicit capture consistent with the regex that accepts ':' or dashes
+            m = DEST_LINE_RE.match(line)
+            if m:
+                current_metadata["destination"] = m.group(1).strip()
+            else:
+                current_metadata["destination"] = line.split(":", 1)[-1].strip()
             continue
 
         # --- Topic boundary: attach snapshot (first-write-wins) ---
@@ -422,6 +431,35 @@ def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
 
 
 # =============================================================================
+# CLUSTER DETECTION (from the very beginning of the file)
+# =============================================================================
+_CLUSTER_LINE_RE = re.compile(r"^\s*(\d+)\.\s*(.+?)\s*$")
+
+def extract_cluster_header(text: str) -> Dict[str, Any]:
+    """
+    Find a leading line like '8. Climate, Energy and Mobility' near the start of the PDF.
+    Returns a dict with 'cluster_title', 'cluster_number', 'cluster_index' (number - 3).
+    """
+    lines = normalize_text(text).splitlines()
+    # Look only near the beginning to avoid false matches later in the WP.
+    for line in lines[:120]:
+        m = _CLUSTER_LINE_RE.match(line)
+        if not m:
+            continue
+        num = int(m.group(1))
+        name = m.group(2).strip()
+        # Guard against obvious non-cluster lines
+        if name.lower().startswith(("part", "page", "annex")):
+            continue
+        return {
+            "cluster_title": f"{num}. {name}",
+            "cluster_number": num,
+            "cluster_index": num - 3
+        }
+    return {"cluster_title": None, "cluster_number": None, "cluster_index": None}
+
+
+# =============================================================================
 # PUBLIC API: parse_pdf -> DataFrame
 #   - Orchestrates extraction and returns a DF with ISO-only date columns
 #   - Preserves all original business logic
@@ -429,11 +467,14 @@ def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
     Orchestrates the pipeline and returns a DataFrame that matches the app's output.
-    Produces only ISO-formatted date columns + boolean 'Two-Stage'.
+    Produces only ISO-formatted date columns + boolean 'Two-Stage' + cluster columns.
     """
     # Read bytes once, then work with a new BytesIO so downstream .read() works
     pdf_bytes = file_like.read()
     raw_text = extract_text_from_pdf(BytesIO(pdf_bytes))
+
+    # Detect cluster once from the whole document
+    cluster_info = extract_cluster_header(raw_text)
 
     topic_blocks = extract_topic_blocks(raw_text)
     metadata_by_code = extract_metadata_blocks(raw_text)
@@ -462,6 +503,11 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Two-Stage": bool(t.get("is_two_stage")),
 
         "Destination": t.get("destination"),
+
+        # Cluster columns
+        "Cluster": cluster_info["cluster_title"],       # e.g., "8. Climate, Energy and Mobility"
+        "Cluster Index": cluster_info["cluster_index"], # e.g., 5 (8 - 3)
+
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
         "Number of Projects": int(t["indicative_total_budget"] / t["budget_per_project"])
