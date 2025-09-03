@@ -225,4 +225,69 @@ with col_dead2:
 # Budget slider (robust)
 bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
 if bud_series.empty:
-    min_bud, max_bud = 0.0, 1_00_
+    min_bud, max_bud = 0.0, 1_000_000.0
+else:
+    min_bud, max_bud = float(bud_series.min()), float(bud_series.max())
+    if not (min_bud < max_bud):
+        min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
+
+budget_range = st.sidebar.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
+
+# Keyword search
+st.sidebar.header("Search")
+keyword = st.sidebar.text_input("Keyword (searches all columns)")
+
+# View mode
+st.sidebar.header("View")
+view_mode = st.sidebar.selectbox("Gantt scale", options=["Month", "Week", "Day"], index=0)
+row_px = st.sidebar.slider("Row height (px)", 20, 60, 28)
+
+# Apply filters
+df_kw = keyword_filter(df, keyword)
+filtered = filtered_df(
+    df_kw, programmes, clusters, types, trls, dests,
+    open_start, open_end, dead_start, dead_end, budget_range
+)
+
+st.markdown(f"**Showing {len(filtered)} rows** after filters/search.")
+
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
+
+with tab1:
+    st.subheader("Gantt (Opening → Deadline)")
+    inject_css()
+
+    tasks = build_tasks(filtered)
+
+    # Height scales with number of tasks and chosen row height
+    chart_height = max(360, int(len(tasks) * (row_px + 10)))
+
+    # Render the Gantt
+    gantt(
+        tasks=tasks_to_html(tasks),
+        height=chart_height,
+        title="Calls Timeline",
+        show_popup=True,
+        view_mode=view_mode,        # "Day" | "Week" | "Month"
+        date_format="YYYY-MM-DD"    # Frappe expects ISO strings
+    )
+
+with tab2:
+    st.subheader("Filtered table")
+    show_cols = [c for c in DISPLAY_COLS if c in filtered.columns]
+    st.dataframe(filtered[show_cols], use_container_width=True, hide_index=True)
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as xw:
+        filtered.to_excel(xw, index=False, sheet_name="filtered")
+    out.seek(0)
+    st.download_button("⬇️ Download filtered (Excel)", out,
+                       file_name="calls_filtered.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+with tab3:
+    st.subheader("Full data (expand rows)")
+    for _, row in filtered.iterrows():
+        title = f"{row.get('code','')} — {row.get('title','')}"
+        with st.expander(title):
+            st.write(row.to_dict())
