@@ -4,3 +4,4 @@ pandas
 openpyxl       # for Excel export
 plotly
 python-dateutil
+streamlit-frappe-gantt
