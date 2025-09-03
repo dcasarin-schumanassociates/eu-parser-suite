@@ -288,7 +288,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 
     chart = (
         (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)
-        .properties(height=chart_height)
+        .properties(height=chart_height, width=4000)
         .configure_axis(grid=False)
         .configure_view(strokeWidth=0)
     )
@@ -456,7 +456,7 @@ with tab1:
     if chart is None:
         st.info("No rows with valid dates to display.")
     else:
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, use_container_width=False)
 
 with tab2:
     st.subheader("Filtered table")
