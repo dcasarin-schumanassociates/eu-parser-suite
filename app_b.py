@@ -325,4 +325,128 @@ prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if 
 cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
 type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
 trl_opts     = sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
-dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropn]()_
+dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d != ""])
+
+programmes = st.sidebar.multiselect("Programme", options=prog_opts, default=prog_opts)
+clusters   = st.sidebar.multiselect("Cluster", options=cluster_opts)
+types      = st.sidebar.multiselect("Type of Action", options=type_opts)
+trls       = st.sidebar.multiselect("TRL", options=trl_opts)
+dests      = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
+
+# Dates: overall bounds from any deadline
+open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
+dead_all = pd.concat([
+    pd.to_datetime(df.get("deadline"), errors="coerce"),
+    pd.to_datetime(df.get("first_deadline"), errors="coerce"),
+    pd.to_datetime(df.get("second_deadline"), errors="coerce"),
+], axis=0)
+dead_lo, dead_hi = safe_date_bounds(dead_all)
+
+c1, c2 = st.sidebar.columns(2)
+with c1:
+    open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
+with c2:
+    open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
+
+c3, c4 = st.sidebar.columns(2)
+with c3:
+    dead_start = st.date_input("Close from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
+with c4:
+    dead_end   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
+
+# Budget slider
+bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
+if bud_series.empty:
+    min_bud, max_bud = 0.0, 1_000_000.0
+else:
+    min_bud, max_bud = float(bud_series.min()), float(bud_series.max())
+    if not (min_bud < max_bud):
+        min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
+budget_range = st.sidebar.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
+
+# Search
+st.sidebar.header("Search")
+keyword = st.sidebar.text_input("Keyword (searches all columns)")
+
+# Deadline mode for bar end
+st.sidebar.header("Gantt options")
+deadline_mode = st.sidebar.selectbox("Deadline to plot", ["Final deadline", "First stage", "Second stage"], index=0)
+end_col = {"Final deadline": "deadline", "First stage": "first_deadline", "Second stage": "second_deadline"}[deadline_mode]
+
+# Persistent view window (x-axis)
+st.sidebar.header("View window (persistent)")
+if "view_start" not in st.session_state or "view_end" not in st.session_state:
+    data_min = min(
+        pd.to_datetime(df.get("opening_date"), errors="coerce").min(),
+        pd.to_datetime(df.get("deadline"), errors="coerce").min(),
+        pd.to_datetime(df.get("first_deadline"), errors="coerce").min(),
+        pd.to_datetime(df.get("second_deadline"), errors="coerce").min(),
+    )
+    data_max = max(
+        pd.to_datetime(df.get("opening_date"), errors="coerce").max(),
+        pd.to_datetime(df.get("deadline"), errors="coerce").max(),
+        pd.to_datetime(df.get("first_deadline"), errors="coerce").max(),
+        pd.to_datetime(df.get("second_deadline"), errors="coerce").max(),
+    )
+    pad = pd.Timedelta(days=30)
+    st.session_state.view_start = (data_min - pad).date() if pd.notna(data_min) else open_lo
+    st.session_state.view_end   = (data_max + pad).date() if pd.notna(data_max) else open_hi
+
+view_start = st.sidebar.date_input("View from", value=st.session_state.view_start)
+view_end   = st.sidebar.date_input("View to",   value=st.session_state.view_end)
+st.session_state.view_start = view_start
+st.session_state.view_end   = view_end
+
+# Apply filters
+df_kw = keyword_filter(df, keyword)
+f = df_kw.copy()
+if programmes: f = f[f["programme"].isin(programmes)]
+if clusters:   f = f[f["cluster"].isin(clusters)]
+if types:      f = f[f["type_of_action"].isin(types)]
+if trls:
+    trl_str = f["trl"].dropna().astype("Int64").astype(str)
+    f = f[trl_str.isin(trls)]
+if dests:      f = f[f["destination_or_strand"].isin(dests)]
+
+# Date filters
+f = f[(f["opening_date"] >= pd.to_datetime(open_start)) & (f["opening_date"] <= pd.to_datetime(open_end))]
+if end_col in f.columns:
+    f = f[(pd.to_datetime(f[end_col], errors="coerce") >= pd.to_datetime(dead_start)) &
+          (pd.to_datetime(f[end_col], errors="coerce") <= pd.to_datetime(dead_end))]
+
+# Budget filter
+f = f[(f["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
+      (f["budget_per_project_eur"].fillna(0) <= budget_range[1])]
+
+st.markdown(f"**Showing {len(f)} rows** after filters/search.")
+
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📅 Gantt (ECharts)", "📋 Table", "📚 Full Data"])
+
+with tab1:
+    st.subheader(f"Gantt (Opening → {deadline_mode})")
+    opt = build_echarts_option(f, end_col=end_col, view_start=view_start, view_end=view_end)
+    if opt is None:
+        st.info("No rows with valid Opening and selected deadline to display.")
+    else:
+        options, height_px = opt
+        st_echarts(options=options, height=height_px, key="echarts_gantt")
+
+with tab2:
+    st.subheader("Filtered table")
+    show_cols = [c for c in DISPLAY_COLS if c in f.columns]
+    st.dataframe(f[show_cols], use_container_width=True, hide_index=True)
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as xw:
+        f.to_excel(xw, index=False, sheet_name="filtered")
+    out.seek(0)
+    st.download_button("⬇️ Download filtered (Excel)", out,
+                       file_name="calls_filtered.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+with tab3:
+    st.subheader("Full data (expand rows)")
+    for _, row in f.iterrows():
+        title = f"{row.get('code','')} — {row.get('title','')}"
+        with st.expander(title):
+            st.write(row.to_dict())
