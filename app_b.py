@@ -1,18 +1,20 @@
 from __future__ import annotations
-import io
-import json
+import io, json
 import pandas as pd
 import streamlit as st
 from dateutil import tz
-import altair as alt
 import streamlit.components.v1 as components
 
-# ===== Column mapping (same as before) =====
+# ---------- Column mapping tailored to your Excel ----------
 COLUMN_MAP = {
     "Code": "code",
     "Title": "title",
     "Opening Date": "opening_date",
     "Deadline": "deadline",
+    "First Stage Deadline": "first_deadline",
+    "Second Stage Deadline": "second_deadline",
+    "Two-Stage": "two_stage",
+    "Cluster": "cluster",
     "Destination": "destination_or_strand",
     "Budget Per Project": "budget_per_project_eur",
     "Total Budget": "total_budget_eur",
@@ -25,32 +27,52 @@ COLUMN_MAP = {
     "Description": "full_text",
     "Source Filename": "source_filename",
     "Version Label": "version_label",
+    "Parsed On (UTC)": "parsed_on_utc",
 }
+
 DISPLAY_COLS = [
-    "programme","cluster","code","title",
-    "opening_date","deadline",
-    "budget_per_project_eur","total_budget_eur",
-    "type_of_action","trl","destination_or_strand",
-    "call_name","version_label","source_filename",
+    "code","title","opening_date","deadline","first_deadline","second_deadline","two_stage",
+    "cluster","destination_or_strand","type_of_action","trl",
+    "budget_per_project_eur","total_budget_eur","num_projects",
+    "call_name","version_label","source_filename","parsed_on_utc"
 ]
+
 LOCAL_TZ = tz.gettz("Europe/Brussels")
 
-# ===== Helpers =====
+# ---------- Helpers ----------
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
+    # Trim headers first
+    df.columns = [c.strip() for c in df.columns]
+
+    # Apply direct mapping (Title Case -> snake_case)
     for src, dst in COLUMN_MAP.items():
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
+
+    # Lowercase any remaining headers for safety
     df = df.rename(columns={c: c.strip().lower() for c in df.columns})
+
+    # Ensure programme exists; cluster already mapped above
     if "programme" not in df.columns:
         df["programme"] = "Horizon Europe"
-    if "cluster" not in df.columns:
-        df["cluster"] = pd.NA
-    for c in ("opening_date","deadline"):
+
+    # Parse dates (EU day-first)
+    for c in ("opening_date","deadline","first_deadline","second_deadline"):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
-    for c in ("budget_per_project_eur","total_budget_eur","trl"):
+
+    # Numbers
+    for c in ("budget_per_project_eur","total_budget_eur","trl","num_projects"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Two-stage to bool if present
+    if "two_stage" in df.columns:
+        # tolerate text like "True"/"FALSE"/"Yes"
+        df["two_stage"] = df["two_stage"].astype(str).str.lower().map({"true": True, "false": False, "yes": True, "no": False})
+    else:
+        df["two_stage"] = False
+
     return df
 
 def keyword_filter(df: pd.DataFrame, term: str) -> pd.DataFrame:
@@ -68,37 +90,48 @@ def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
         hi = (pd.to_datetime(hi) + pd.Timedelta(days=1)).date()
     return lo, hi
 
-def build_frappe_tasks(df: pd.DataFrame) -> list[dict]:
-    """Convert rows to Frappe Gantt tasks."""
-    def safe_val(val):
-        if pd.isna(val):
-            return ""
-        return str(val)
+def _safe(val):
+    return "" if pd.isna(val) else str(val)
 
+def choose_deadline(row, mode: str):
+    if mode == "Final deadline":
+        return row.get("deadline")
+    elif mode == "First stage":
+        return row.get("first_deadline")
+    elif mode == "Second stage":
+        return row.get("second_deadline")
+    return row.get("deadline")
+
+def build_frappe_tasks(df: pd.DataFrame, deadline_mode: str = "Final deadline") -> list[dict]:
     tasks = []
-    for i, r in df.dropna(subset=["opening_date", "deadline"]).iterrows():
+    # pick the deadline column based on mode
+    for i, r in df.iterrows():
+        end_dt = choose_deadline(r, deadline_mode)
+        if pd.isna(r.get("opening_date")) or pd.isna(end_dt):
+            continue
+
         tasks.append({
-            "id": str(r.get("code") or f"row-{i}"),
-            "name": f"{safe_val(r.get('code'))} — {safe_val(r.get('title'))}",
-            "start": r["opening_date"].date().isoformat(),
-            "end": r["deadline"].date().isoformat(),
+            "id": _safe(r.get("code")) or f"row-{i}",
+            "name": f"{_safe(r.get('code'))} — {_safe(r.get('title'))}",
+            "start": pd.to_datetime(r.get("opening_date")).date().isoformat(),
+            "end":   pd.to_datetime(end_dt).date().isoformat(),
             "progress": 100,
-            "custom_class": safe_val(r.get("programme")).replace(" ", "-").lower(),
+            "custom_class": (_safe(r.get("programme")) or "default").replace(" ", "-").lower(),
             "details": {
-                "Title": safe_val(r.get("title")),
-                "Type": safe_val(r.get("type_of_action")),
+                "Title": _safe(r.get("title")),
+                "Type": _safe(r.get("type_of_action")),
                 "Budget (€)": f"{int(r.get('budget_per_project_eur') or 0):,}",
-                "Open": r["opening_date"].strftime("%d %b %Y") if pd.notna(r["opening_date"]) else "",
-                "Close": r["deadline"].strftime("%d %b %Y") if pd.notna(r["deadline"]) else "",
-                "Cluster/Strand": safe_val(r.get("cluster")) or safe_val(r.get("destination_or_strand")),
-                "Version": safe_val(r.get("version_label")),
+                "Open": pd.to_datetime(r.get("opening_date")).strftime("%d %b %Y"),
+                "Close": pd.to_datetime(end_dt).strftime("%d %b %Y"),
+                "Two-stage": "Yes" if bool(r.get("two_stage")) else "No",
+                "Cluster": _safe(r.get("cluster")),
+                "Destination/Strand": _safe(r.get("destination_or_strand")),
+                "Version": _safe(r.get("version_label")),
             }
         })
     return tasks
 
-
-def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: int = 600):
-    # CDN HTML block. We pass `tasks` JSON and build chart client-side.
+def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: int = 700):
     tasks_json = json.dumps(tasks)
     html = f"""
     <div id="gantt" class="gantt-container" style="width:100%; overflow-x:auto;"></div>
@@ -109,14 +142,14 @@ def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: 
       .bar-wrapper {{ margin-bottom: 10px; }}
       .grid .row.lines .line {{ stroke: #e5e7eb; stroke-width: 1; }}
       .grid .tick {{ stroke: #cbd5e1; }}
-      .popup-wrapper {{ max-width: 420px; }}
+      .popup-wrapper {{ max-width: 460px; }}
+      .gantt .bar .bar-rect {{ rx: 4px; ry: 4px; }}
     </style>
     <script>
       const tasks = {tasks_json};
       const el = document.getElementById('gantt');
       el.style.height = '{height_px}px';
 
-      // Map programme class -> color (set SVG style dynamically)
       const colorMap = {{
         "horizon-europe": "#3b82f6",
         "digital-europe": "#22c55e",
@@ -134,13 +167,15 @@ def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: 
               <div><b>Type:</b> ${{d["Type"] || ""}}</div>
               <div><b>Budget (€):</b> ${{d["Budget (€)"] || ""}}</div>
               <div><b>Open → Close:</b> ${{d["Open"] || ""}} → ${{d["Close"] || ""}}</div>
-              <div><b>Cluster/Strand:</b> ${{d["Cluster/Strand"] || ""}}</div>
+              <div><b>Two-stage:</b> ${{d["Two-stage"] || ""}}</div>
+              <div><b>Cluster:</b> ${{d["Cluster"] || ""}}</div>
+              <div><b>Destination/Strand:</b> ${{d["Destination/Strand"] || ""}}</div>
               <div><b>Version:</b> ${{d["Version"] || ""}}</div>
             </div>`;
         }}
       }});
 
-      // Apply colors
+      // Apply colors per programme class
       setTimeout(() => {{
         document.querySelectorAll('.bar').forEach(bar => {{
           const klass = Array.from(bar.classList).find(c => colorMap[c]);
@@ -152,37 +187,8 @@ def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: 
     """
     components.html(html, height=height_px + 40, scrolling=True)
 
-def make_gantt_altair(df: pd.DataFrame):
-    g = df.dropna(subset=["opening_date","deadline","title"]).copy()
-    if g.empty:
-        return None
-    g["title_wrapped"] = (g["code"].fillna("").astype(str) + " — " + g["title"].astype(str))\
-                         .str.replace(r"(.{50})", r"\\n\\1", regex=True)
-    row_h = 28
-    h = max(400, len(g) * row_h)
-    base = alt.Chart(g).encode(
-        y=alt.Y("title_wrapped:N", sort='-x', axis=alt.Axis(title=None, labelLimit=300)),
-        color=alt.Color("programme:N", legend=None)
-    )
-    bars = base.mark_bar(cornerRadius=3).encode(
-        x=alt.X("opening_date:T", axis=alt.Axis(title=None, format="%b %Y", tickCount="month")),
-        x2="deadline:T",
-        tooltip=[
-            alt.Tooltip("title:N", title="Title"),
-            alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
-            alt.Tooltip("type_of_action:N", title="Type"),
-            alt.Tooltip("opening_date:T", title="Open", format="%d %b %Y"),
-            alt.Tooltip("deadline:T", title="Close", format="%d %b %Y"),
-        ],
-    )
-    months = pd.date_range(g["opening_date"].min().floor("D"),
-                           g["deadline"].max().ceil("D"),
-                           freq="MS")
-    grid = alt.Chart(pd.DataFrame({"m": months})).mark_rule(stroke="#DDD").encode(x="m:T")
-    return (grid + bars).properties(height=h).configure_axis(grid=False).configure_view(strokeWidth=0)
-
-# ===== UI =====
-st.set_page_config(page_title="Calls Explorer (Frappe via CDN)", layout="wide")
+# ---------- UI ----------
+st.set_page_config(page_title="Calls Explorer (Frappe Gantt)", layout="wide")
 st.title("Calls Explorer (Frappe Gantt + Filters)")
 
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
@@ -196,31 +202,41 @@ df = canonicalise(raw)
 
 # Filters
 st.sidebar.header("Filters")
-prog_opts   = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
-cluster_opts= sorted([c for c in df["cluster"].dropna().unique().tolist() if pd.notna(c)])
-type_opts   = sorted([t for t in df["type_of_action"].dropna().unique().tolist() if pd.notna(t)])
-trl_opts    = sorted([str(int(x)) for x in df["trl"].dropna().unique() if pd.notna(x)])
-dest_opts   = sorted([d for d in df["destination_or_strand"].dropna().unique().tolist() if pd.notna(d)])
+prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
+cluster_opts = sorted([c for c in df["cluster"].dropna().unique().tolist() if pd.notna(c)])
+type_opts    = sorted([t for t in df["type_of_action"].dropna().unique().tolist() if pd.notna(t)])
+trl_opts     = sorted([str(int(x)) for x in df["trl"].dropna().unique() if pd.notna(x)])
+dest_opts    = sorted([d for d in df["destination_or_strand"].dropna().unique().tolist() if pd.notna(d)])
 
-programmes = st.sidebar.multiselect("Programme", options=prog_opts, default=prog_opts)
-clusters   = st.sidebar.multiselect("Cluster / Strand", options=cluster_opts)
+programmes = st.sidebar.multiselect("Programme", options=prog_opts, default=prog_opts if prog_opts else [])
+clusters   = st.sidebar.multiselect("Cluster", options=cluster_opts)
 types      = st.sidebar.multiselect("Type of Action", options=type_opts)
 trls       = st.sidebar.multiselect("TRL", options=trl_opts)
 dests      = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
 
+# Date bounds from the three date columns (opening & any deadlines)
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
-dead_lo, dead_hi = safe_date_bounds(df.get("deadline"))
-col_o1, col_o2 = st.sidebar.columns(2)
-with col_o1:
-    open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-with col_o2:
-    open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
-col_d1, col_d2 = st.sidebar.columns(2)
-with col_d1:
-    dead_start = st.date_input("Deadline from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-with col_d2:
-    dead_end   = st.date_input("Deadline to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
+# For overall allowed range, consider any of the deadline fields
+dead_all = pd.concat([
+    pd.to_datetime(df.get("deadline"), errors="coerce"),
+    pd.to_datetime(df.get("first_deadline"), errors="coerce"),
+    pd.to_datetime(df.get("second_deadline"), errors="coerce")
+], axis=0)
+dead_lo, dead_hi = safe_date_bounds(dead_all)
 
+c1, c2 = st.sidebar.columns(2)
+with c1:
+    open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
+with c2:
+    open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
+
+c3, c4 = st.sidebar.columns(2)
+with c3:
+    dead_start = st.date_input("Close from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
+with c4:
+    dead_end   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
+
+# Budget slider (robust)
 bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
 if bud_series.empty:
     min_bud, max_bud = 0.0, 1_000_000.0
@@ -230,8 +246,15 @@ else:
         min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
 budget_range = st.sidebar.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
 
+# Search
 st.sidebar.header("Search")
 keyword = st.sidebar.text_input("Keyword (searches all columns)")
+
+# Deadline mode (what to plot as the bar's end)
+st.sidebar.header("Gantt options")
+deadline_mode = st.sidebar.selectbox("Deadline to plot", ["Final deadline", "First stage", "Second stage"], index=0)
+view_mode = st.sidebar.selectbox("Gantt scale", ["Month","Week","Day"], index=0)
+row_px    = st.sidebar.slider("Row height (px)", 20, 60, 28)
 
 # Apply filters
 df_kw = keyword_filter(df, keyword)
@@ -244,16 +267,21 @@ if trls:
     f = f[trl_str.isin(trls)]
 if dests:      f = f[f["destination_or_strand"].isin(dests)]
 
-f = f[
-    (f["opening_date"] >= pd.to_datetime(open_start)) &
-    (f["opening_date"] <= pd.to_datetime(open_end)) &
-    (f["deadline"] >= pd.to_datetime(dead_start)) &
-    (f["deadline"] <= pd.to_datetime(dead_end))
-]
-f = f[
-    (f["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
-    (f["budget_per_project_eur"].fillna(0) <= budget_range[1])
-]
+# Date filters: opening window
+f = f[(f["opening_date"] >= pd.to_datetime(open_start)) & (f["opening_date"] <= pd.to_datetime(open_end))]
+
+# Date filters: chosen deadline column for plotting
+deadline_col = "deadline" if deadline_mode == "Final deadline" else ("first_deadline" if deadline_mode == "First stage" else "second_deadline")
+if deadline_col not in f.columns:
+    # if missing, keep all rows (the build will skip rows without both dates)
+    pass
+else:
+    f = f[(pd.to_datetime(f[deadline_col], errors="coerce") >= pd.to_datetime(dead_start)) &
+          (pd.to_datetime(f[deadline_col], errors="coerce") <= pd.to_datetime(dead_end))]
+
+# Budget filter
+f = f[(f["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
+      (f["budget_per_project_eur"].fillna(0) <= budget_range[1])]
 
 st.markdown(f"**Showing {len(f)} rows** after filters/search.")
 
@@ -261,19 +289,12 @@ st.markdown(f"**Showing {len(f)} rows** after filters/search.")
 tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
 
 with tab1:
-    st.subheader("Gantt (Opening → Deadline)")
-    tasks = build_frappe_tasks(f)
+    st.subheader(f"Gantt (Opening → {deadline_mode})")
+    tasks = build_frappe_tasks(f, deadline_mode=deadline_mode)
     if not tasks:
-        st.info("No rows with valid Opening/Deadline")
+        st.info("No rows with valid dates for the selected deadline mode.")
     else:
-        # Controls
-        colA, colB = st.columns([1,1])
-        with colA:
-            view_mode = st.selectbox("Scale", ["Month","Week","Day"], index=0)
-        with colB:
-            row_px = st.slider("Row height (px)", 20, 60, 28)
         chart_h = max(360, int(len(tasks) * (row_px + 10)))
-        # Render via CDN
         render_frappe_gantt(tasks, view_mode=view_mode, height_px=chart_h)
 
 with tab2:
