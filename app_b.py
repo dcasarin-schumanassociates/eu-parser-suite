@@ -291,7 +291,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 
     chart = (
         (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)
-        .properties(height=chart_height, width=1200)
+        .properties(height=chart_height, width=3600)
         .configure_view(strokeWidth=0)
         .configure_view(strokeWidth=0)
     )
