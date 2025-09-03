@@ -1,13 +1,12 @@
-# app_b.py — ECharts Gantt (scalable) + existing filters/table/downloads
+# app_b.py — ECharts Gantt (JSON-safe + robust labels)
 from __future__ import annotations
 import io
-import math
 from datetime import datetime
 import pandas as pd
 import streamlit as st
 from streamlit_echarts import st_echarts, JsCode
 
-# ---------- Column mapping tailored to your Excel ----------
+# ---------- Column mapping ----------
 COLUMN_MAP = {
     "Code": "code",
     "Title": "title",
@@ -42,29 +41,23 @@ DISPLAY_COLS = [
 
 # ---------- Helpers ----------
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
-    # Trim + map headers
     df.columns = [c.strip() for c in df.columns]
     for src, dst in COLUMN_MAP.items():
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
-    # Normalise leftovers
     df = df.rename(columns={c: c.strip().lower() for c in df.columns})
 
-    # Programme default
     if "programme" not in df.columns:
         df["programme"] = "Horizon Europe"
 
-    # Dates (EU day-first)
     for c in ("opening_date","deadline","first_deadline","second_deadline"):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
 
-    # Numerics
     for c in ("budget_per_project_eur","total_budget_eur","trl","num_projects"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # Two-stage to bool-like
     if "two_stage" in df.columns:
         df["two_stage"] = (
             df["two_stage"].astype(str).str.strip().str.lower()
@@ -73,11 +66,9 @@ def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
         )
     else:
         df["two_stage"] = False
-
     return df
 
 def wrap_label(text: str, width=36, max_lines=3) -> str:
-    """Hard-wrap to `width` chars per line, up to `max_lines`."""
     s = str(text or "")
     parts = [s[i:i+width] for i in range(0, len(s), width)]
     return "\n".join(parts[:max_lines])
@@ -91,104 +82,74 @@ def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
         hi = (pd.to_datetime(hi) + pd.Timedelta(days=1)).date()
     return lo, hi
 
-# -------- Multi-keyword search (3 fields, AND/OR, Title/Code only or All) --------
-def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
-    terms = [t.strip().lower() for t in terms if t and t.strip()]
-    if not terms:
-        return df
-    if title_code_only and set(["title","code"]).issubset(df.columns):
-        hay = df[["title","code"]].astype(str).apply(lambda s: s.str.lower())
-        masks = [hay.apply(lambda s: s.str.contains(t, na=False)).any(axis=1) for t in terms]
-    else:
-        lower_all = df.apply(lambda r: r.astype(str).str.lower(), axis=1)
-        masks = [lower_all.apply(lambda s: s.str.contains(t, na=False)).any(axis=1) for t in terms]
-    combined = masks[0]
-    for m in masks[1:]:
-        combined = (combined & m) if mode == "AND" else (combined | m)
-    return df[combined]
-
-# -------- Build long-form segments (one or two bars per row) --------
 def build_segments(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Returns DataFrame with columns:
-      y_title (wrapped title for left axis),
-      code, programme, start, end, segment, title, budget_per_project_eur
-    Two-stage rows -> two segments; single-stage -> one segment.
-    """
     rows = []
     for _, r in df.iterrows():
-        code = str(r.get("code") or "")
+        code  = str(r.get("code") or "")
         title = str(r.get("title") or "")
-        y_title = wrap_label(title, width=36, max_lines=3)  # axis uses TITLE only
-        prog = r.get("programme")
+        y_title = wrap_label(title, width=36, max_lines=3)
+
+        prog      = r.get("programme")
         open_dt   = r.get("opening_date")
         final_dt  = r.get("deadline")
         first_dt  = r.get("first_deadline")
         second_dt = r.get("second_deadline")
         two_stage = bool(r.get("two_stage"))
 
+        def add_row(start, end, segment):
+            if pd.notna(start) and pd.notna(end) and start <= end:
+                rows.append({
+                    "y_title": y_title, "code": code, "programme": prog,
+                    "start": pd.to_datetime(start), "end": pd.to_datetime(end),
+                    "segment": segment,
+                    "title": title,
+                    "budget_per_project_eur": (
+                        float(r.get("budget_per_project_eur"))  # cast to Python float for JSON
+                        if pd.notna(r.get("budget_per_project_eur")) else None
+                    ),
+                })
+
         if two_stage:
-            if pd.notna(open_dt) and pd.notna(first_dt) and open_dt <= first_dt:
-                rows.append({
-                    "y_title": y_title, "code": code, "programme": prog,
-                    "start": open_dt, "end": first_dt, "segment": "Stage 1",
-                    "title": title, "budget_per_project_eur": r.get("budget_per_project_eur"),
-                })
-            segB_end = second_dt if pd.notna(second_dt) else (final_dt if pd.notna(final_dt) else None)
-            if pd.notna(first_dt) and pd.notna(segB_end) and first_dt <= segB_end:
-                rows.append({
-                    "y_title": y_title, "code": code, "programme": prog,
-                    "start": first_dt, "end": segB_end, "segment": "Stage 2",
-                    "title": title, "budget_per_project_eur": r.get("budget_per_project_eur"),
-                })
+            add_row(open_dt, first_dt, "Stage 1")
+            end_b = second_dt if pd.notna(second_dt) else final_dt
+            add_row(first_dt, end_b, "Stage 2")
         else:
-            if pd.notna(open_dt) and pd.notna(final_dt) and open_dt <= final_dt:
-                rows.append({
-                    "y_title": y_title, "code": code, "programme": prog,
-                    "start": open_dt, "end": final_dt, "segment": "Single",
-                    "title": title, "budget_per_project_eur": r.get("budget_per_project_eur"),
-                })
+            add_row(open_dt, final_dt, "Single")
 
     seg = pd.DataFrame(rows)
     if seg.empty:
         return seg
 
-    # Sort rows by earliest end per y_title, then by start
     seg["earliest_end"] = seg.groupby("y_title")["end"].transform("min")
     seg = seg.sort_values(["earliest_end", "start"]).reset_index(drop=True)
     return seg
 
-def dt_to_ms(x):
-    """pandas.Timestamp/datetime/date -> JS milliseconds since epoch."""
+def dt_to_ms(x) -> int | None:
     if pd.isna(x):
         return None
     if isinstance(x, pd.Timestamp):
-        ts = x.to_pydatetime()
-    elif isinstance(x, datetime):
-        ts = x
-    else:
-        ts = pd.to_datetime(x).to_pydatetime()
-    return int(ts.timestamp() * 1000)
+        x = x.to_pydatetime()
+    if isinstance(x, datetime):
+        return int(x.timestamp() * 1000)
+    # fallback
+    return int(pd.to_datetime(x).to_pydatetime().timestamp() * 1000)
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt (ECharts)", layout="wide")
 st.title("Calls Explorer — Gantt (ECharts)")
 
-# Upload
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
 if not upl:
     st.stop()
 
-# Read
 xls = pd.ExcelFile(upl)
 sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
 raw = pd.read_excel(xls, sheet_name=sheet)
 df = canonicalise(raw)
 
-# ----- Sidebar: APPLY form (so chart updates only on Apply) -----
+# ----- Sidebar: APPLY form -----
 with st.sidebar.form("filters_form", clear_on_submit=False):
     st.header("Filters")
-
     prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
     cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
     type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
@@ -208,7 +169,6 @@ with st.sidebar.form("filters_form", clear_on_submit=False):
     combine_mode = st.radio("Combine", ["AND", "OR"], horizontal=True, index=0)
     title_code_only = st.checkbox("Search only in Title & Code", value=True)
 
-    # Date bounds for defaults
     open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
     dead_all = pd.concat([
         pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -229,7 +189,6 @@ with st.sidebar.form("filters_form", clear_on_submit=False):
     with col4:
         close_to   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
-    # Budget slider
     bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
     if bud_series.empty:
         min_bud, max_bud = 0.0, 1_000_000.0
@@ -239,7 +198,7 @@ with st.sidebar.form("filters_form", clear_on_submit=False):
             min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
     budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
 
-    # Persistent view window (x-axis)
+    # Persistent x-range
     st.subheader("View window (persistent)")
     if "view_start" not in st.session_state or "view_end" not in st.session_state:
         data_min = min(
@@ -257,16 +216,13 @@ with st.sidebar.form("filters_form", clear_on_submit=False):
         pad = pd.Timedelta(days=30)
         st.session_state.view_start = (data_min - pad).date() if pd.notna(data_min) else open_lo
         st.session_state.view_end   = (data_max + pad).date() if pd.notna(data_max) else open_hi
-
     view_start = st.date_input("View from", value=st.session_state.view_start)
     view_end   = st.date_input("View to",   value=st.session_state.view_end)
 
     applied = st.form_submit_button("Apply filters")
 
-# Persist criteria on Apply
 if "criteria" not in st.session_state:
     st.session_state.criteria = {}
-
 if applied:
     st.session_state.criteria = dict(
         programmes=programmes, clusters=clusters, types=types, trls=trls, dests=dests,
@@ -277,7 +233,6 @@ if applied:
     st.session_state.view_start = view_start
     st.session_state.view_end   = view_end
 
-# Defaults before first Apply
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
 dead_all = pd.concat([
     pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -298,7 +253,22 @@ if not st.session_state.criteria:
 
 crit = st.session_state.criteria
 
-# ---- Apply filters after Apply ----
+# ---- Apply filters ----
+def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
+    terms = [t.strip().lower() for t in terms if t and t.strip()]
+    if not terms:
+        return df
+    if title_code_only and set(["title","code"]).issubset(df.columns):
+        hay = df[["title","code"]].astype(str).apply(lambda s: s.str.lower())
+        masks = [hay.apply(lambda s: s.str.contains(t, na=False)).any(axis=1) for t in terms]
+    else:
+        lower_all = df.apply(lambda r: r.astype(str).str.lower(), axis=1)
+        masks = [lower_all.apply(lambda s: s.str.contains(t, na=False)).any(axis=1) for t in terms]
+    combined = masks[0]
+    for m in masks[1:]:
+        combined = (combined & m) if mode == "AND" else (combined | m)
+    return df[combined]
+
 f = df.copy()
 f = multi_keyword_filter(f, [crit["kw1"], crit["kw2"], crit["kw3"]], crit["combine_mode"], crit["title_code_only"])
 if crit["programmes"]: f = f[f["programme"].isin(crit["programmes"])]
@@ -333,74 +303,60 @@ with tab1:
     if seg.empty:
         st.info("No rows with valid dates to display.")
     else:
-        # Build y-axis categories (stable order)
         y_categories = seg["y_title"].drop_duplicates().tolist()
         y_index = {v: i for i, v in enumerate(y_categories)}
 
-        # Build series data for custom renderItem
-        # Each item: [start_ms, end_ms, yIndex, code, title, segment, programme]
+        # Each item must be pure JSON types
         series_data = []
         for _, r in seg.iterrows():
             series_data.append([
-                dt_to_ms(r["start"]),
-                dt_to_ms(r["end"]),
-                y_index[r["y_title"]],
-                r.get("code") or "",
-                r.get("title") or "",
-                r.get("segment") or "",
-                r.get("programme") or "",
-                r.get("budget_per_project_eur") if pd.notna(r.get("budget_per_project_eur")) else None,
+                int(dt_to_ms(r["start"])),            # 0: start_ms
+                int(dt_to_ms(r["end"])),              # 1: end_ms
+                int(y_index[r["y_title"]]),           # 2: row index
+                str(r.get("code") or ""),             # 3: code (in-bar)
+                str(r.get("title") or ""),            # 4: title (tooltip)
+                str(r.get("segment") or ""),          # 5: segment (tooltip)
+                str(r.get("programme") or ""),        # 6: programme (tooltip)
+                (float(r.get("budget_per_project_eur")) if pd.notna(r.get("budget_per_project_eur")) else None),  # 7: budget
             ])
 
-        # View window
-        x_min = dt_to_ms(pd.to_datetime(crit["view_start"]))
-        x_max = dt_to_ms(pd.to_datetime(crit["view_end"]))
+        x_min = int(dt_to_ms(pd.to_datetime(crit["view_start"])))
+        x_max = int(dt_to_ms(pd.to_datetime(crit["view_end"])))
 
-        # Row height scaling (px)
-        row_height = 34  # adjust if you want taller rows
+        row_height = 36
         chart_height = max(480, len(y_categories) * (row_height + 8))
 
-        # JS: renderItem draws rectangles per row + in-bar code label (white)
         render_item = JsCode("""
         function(params, api) {
           var start = api.value(0);
-          var end = api.value(1);
-          var yIdx = api.value(2);
-          var code = api.value(3);
-          var title = api.value(4);
-          var segment = api.value(5);
-          var catIndex = yIdx;
+          var end   = api.value(1);
+          var yIdx  = api.value(2);
+          var code  = api.value(3);
 
-          var startCoord = api.coord([start, catIndex]);
-          var endCoord   = api.coord([end, catIndex]);
-          var x0 = startCoord[0];
-          var x1 = endCoord[0];
+          var startCoord = api.coord([start, yIdx]);
+          var endCoord   = api.coord([end,   yIdx]);
+          var x0 = startCoord[0], x1 = endCoord[0];
 
-          // bar height: a fraction of category interval
           var band = api.size([0, 1])[1];
-          var barHeight = Math.max(12, Math.min(28, band * 0.65));
-          var yCenter = startCoord[1];
-          var yTop = yCenter - barHeight / 2;
+          var barH = Math.max(14, Math.min(30, band * 0.70));
+          var yC   = startCoord[1];
+          var yTop = yC - barH / 2;
 
-          if (isNaN(x0) || isNaN(x1)) { return; }
-          if (x1 < x0) { var tmp = x0; x0 = x1; x1 = tmp; }
+          if (isNaN(x0) || isNaN(x1)) return;
 
-          var groupChildren = [];
-
-          // main rect
-          groupChildren.push({
+          var children = [];
+          children.push({
             type: 'rect',
-            shape: { x: x0, y: yTop, width: (x1 - x0), height: barHeight, r: 3 },
+            shape: { x: Math.min(x0,x1), y: yTop, width: Math.abs(x1-x0), height: barH, r: 3 },
             style: { fill: api.visual('color') }
           });
 
-          // in-bar code label (white). Only if bar wide enough (~70px)
-          if ((x1 - x0) > 70) {
-            groupChildren.push({
+          if (Math.abs(x1-x0) > 72) {
+            children.push({
               type: 'text',
               style: {
                 x: (x0 + x1) / 2,
-                y: yCenter,
+                y: yC,
                 text: code,
                 textAlign: 'center',
                 textVerticalAlign: 'middle',
@@ -410,20 +366,20 @@ with tab1:
               }
             });
           }
-
-          return { type: 'group', children: groupChildren };
+          return { type: 'group', children: children };
         }
         """)
 
-        # Tooltip formatter
         tooltip_fmt = JsCode("""
         function (params) {
-          var v = params.value;
           function fmt(ts) {
             var d = new Date(ts);
-            var opts = { day:'2-digit', month:'short', year:'numeric' };
-            return d.toLocaleDateString(undefined, opts);
+            var m = d.toLocaleString(undefined, {month:'short'});
+            var y = d.getFullYear();
+            var day = ('0' + d.getDate()).slice(-2);
+            return day + ' ' + m + ' ' + y;
           }
+          var v = params.value;
           var start = fmt(v[0]);
           var end   = fmt(v[1]);
           var code  = v[3];
@@ -444,13 +400,22 @@ with tab1:
         }
         """)
 
+        month_axis_fmt = JsCode("""
+        function (value) {
+          var d = new Date(value);
+          var m = d.toLocaleString(undefined, {month:'short'});
+          var y = d.getFullYear();
+          return m + ' ' + y;
+        }
+        """)
+
         option = {
             "animation": False,
-            "grid": {"left": 260, "right": 20, "top": 36, "bottom": 50, "containLabel": False},
-            "color": ["#4E79A7", "#59A14F", "#E15759", "#F28E2B", "#B07AA1", "#76B7B2", "#EDC948"],
+            "grid": {"left": 320, "right": 20, "top": 42, "bottom": 56, "containLabel": False},
+            "color": ["#4E79A7","#59A14F","#E15759","#F28E2B","#B07AA1","#76B7B2","#EDC948"],
             "tooltip": {"trigger": "item", "borderWidth": 0, "formatter": tooltip_fmt},
             "dataZoom": [
-                {"type": "slider", "xAxisIndex": 0, "filterMode": "weakFilter", "height": 18, "bottom": 0},
+                {"type": "slider", "xAxisIndex": 0, "filterMode": "weakFilter", "height": 18, "bottom": 4},
                 {"type": "inside", "xAxisIndex": 0, "filterMode": "weakFilter"}
             ],
             "xAxis": {
@@ -458,9 +423,9 @@ with tab1:
                 "position": "top",
                 "min": x_min,
                 "max": x_max,
-                "axisLabel": {"formatter": "{MMM} {yyyy}", "fontSize": 12},
-                "splitLine": { "show": True, "lineStyle": {"color": "#E5E7EB"} },  # weekly split lines via minorTick not ideal; this gives regular grid
-                "axisTick": { "show": True }
+                "axisLabel": {"formatter": month_axis_fmt, "fontSize": 12},
+                "splitLine": {"show": True, "lineStyle": {"color": "#E5E7EB"}},
+                "axisTick": {"show": True}
             },
             "yAxis": {
                 "type": "category",
@@ -469,9 +434,10 @@ with tab1:
                 "axisLabel": {
                     "fontSize": 14,
                     "align": "left",
-                    "margin": 12,
-                    "width": 240,           # wrap by width + \n already present
-                    "overflow": "break"     # allows breaking long lines
+                    "margin": 14,
+                    "width": 280,         # allow wrapping
+                    "overflow": "break",  # wrap long lines
+                    "lineHeight": 18
                 }
             },
             "series": [{
