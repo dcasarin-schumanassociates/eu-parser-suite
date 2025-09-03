@@ -140,13 +140,42 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
         )
     }
 
+import re
+from typing import Any, Dict
+
+# Helper: parse two-stage deadlines of the form
+# "Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)"
+DATE_TOKEN = r"\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}"
+TWO_STAGE_DEADLINES_RE = re.compile(
+    rf"deadline\(s\)\s*:\s*"
+    rf"({DATE_TOKEN})\s*\(([^)]+?)\)\s*,\s*"
+    rf"({DATE_TOKEN})\s*\(([^)]+?)\)",
+    re.IGNORECASE
+)
+
+def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
+    m = TWO_STAGE_DEADLINES_RE.search(line)
+    if not m:
+        return {}
+    # Groups: 1=date1, 2=label1, 3=date2, 4=label2
+    return {
+        "deadline_stage1": m.group(1),
+        "deadline_stage1_label": m.group(2).strip(),
+        "deadline_stage2": m.group(3),
+        "deadline_stage2_label": m.group(4).strip(),
+    }
+
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
 
     metadata_map: Dict[str, Dict[str, Any]] = {}
-    current_metadata = {
+    current_metadata: Dict[str, Any] = {
         "opening_date": None,
-        "deadline": None,
+        "deadline": None,              # KEEP: single-stage
+        "deadline_stage1": None,       # NEW: first-stage
+        "deadline_stage1_label": None, # NEW: label
+        "deadline_stage2": None,       # NEW: second-stage
+        "deadline_stage2_label": None, # NEW: label
         "destination": None
     }
 
@@ -158,12 +187,23 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         if lower.startswith("opening:"):
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["opening_date"] = m.group(1) if m else None
+            # Reset deadlines when a new Opening section begins
             current_metadata["deadline"] = None
+            current_metadata["deadline_stage1"] = None
+            current_metadata["deadline_stage1_label"] = None
+            current_metadata["deadline_stage2"] = None
+            current_metadata["deadline_stage2_label"] = None
             collecting = True
 
         elif collecting and lower.startswith("deadline"):
+            # KEEP: your original single-date detection (unchanged)
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["deadline"] = m.group(1) if m else None
+
+            # NEW: additionally try to parse two-stage deadlines on the same line
+            extra = parse_two_stage_deadlines(line)
+            if extra:
+                current_metadata.update(extra)
 
         elif collecting and lower.startswith("destination"):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
@@ -177,6 +217,10 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     return metadata_map
 
 # ========== Public API ==========
+import pandas as pd
+from io import BytesIO
+from typing import Any, Dict
+
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
     Orchestrates your working pipeline and returns a DataFrame that matches your current app's output.
@@ -202,7 +246,15 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
         "Opening Date": t.get("opening_date"),
+        # KEEP: single-stage deadline column as-is
         "Deadline": t.get("deadline"),
+        # NEW: additional columns for two-stage deadlines (populated only when present)
+        "First Stage Deadline": t.get("deadline_stage1"),
+        "Second Stage Deadline": t.get("deadline_stage2"),
+        # Optional (keep if you want the labels visible; otherwise remove these two lines)
+        "First Stage Label": t.get("deadline_stage1_label"),
+        "Second Stage Label": t.get("deadline_stage2_label"),
+
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
