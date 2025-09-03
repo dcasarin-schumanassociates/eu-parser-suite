@@ -230,7 +230,6 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         "is_two_stage": False,     # boolean flag
     }
 
-    # Case-insensitive topic code; allow lowercase in codes
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
     collecting = False
 
@@ -240,13 +239,9 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         next2 = lines[idx + 2].strip() if idx + 2 < len(lines) else ""
         line_plus_next = f"{line} {next1}".strip()
 
-        # --- Opening ---
         if OPENING_TRIGGER_RE.match(line):
-            # Try same line after the colon, then look ahead up to two lines
             opening_date = _find_first_date_in([line, next1, next2])
             current_metadata["opening_date"] = opening_date
-
-            # Reset per-call metadata on a new Opening section
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
@@ -255,24 +250,18 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             collecting = True
             continue
 
-        # --- Deadline(s) ---
         if collecting and DEADLINE_TRIGGER_RE.match(line):
-            # KEEP: original behaviour (first date), but with next-line fallback
             deadline = _find_first_date_in([line, next1])
             current_metadata["deadline"] = deadline
-
-            # Two-stage parse (handle wrapping by parsing line + next)
             extra = parse_two_stage_deadlines(line_plus_next)
             if extra:
                 current_metadata.update(extra)
             continue
 
-        # --- Destination ---
         if collecting and DEST_TRIGGER_RE.match(line):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
             continue
 
-        # --- Topic boundary: attach snapshot to this code ---
         if collecting:
             match = topic_pattern.match(line)
             if match:
@@ -289,8 +278,10 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                     to_save["deadline_stage1"] = None
                     to_save["deadline_stage2"] = None
 
-                # KEY: normalise the key to a consistent case to avoid join misses
-                metadata_map[code.upper()] = to_save
+                # >>> FIRST-WRITE-WINS + normalised key <<<
+                key = code.upper()
+                if key not in metadata_map:
+                    metadata_map[key] = to_save
 
     return metadata_map
 
@@ -340,10 +331,12 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         {
             **topic,
             **extract_data_fields(topic),
-            **metadata_by_code.get(topic["code"].upper(), {})  # <— normalised join key
+            # use uppercased code for the lookup to match how we saved it
+            **metadata_by_code.get(topic["code"].upper(), {})
         }
         for topic in topic_blocks
     ]
+
 
     df = pd.DataFrame([{
         "Code": t["code"],
