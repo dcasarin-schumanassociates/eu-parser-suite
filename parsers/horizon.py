@@ -38,6 +38,110 @@ def normalize_text(text: str) -> str:
 
 
 # =============================================================================
+# CLUSTER DETECTION (very beginning of the file)
+#   - Returns the Work Programme cluster, e.g. "Climate, Energy and Mobility"
+#   - Strategy:
+#       1) If we see "Horizon Europe - Work Programme ..." then take the next
+#          meaningful line as the cluster (skipping "EN", "Annex ...", etc.)
+#       2) Fallback to matching against a known set of cluster names anywhere
+#          in the first ~80 lines.
+# =============================================================================
+_KNOWN_CLUSTERS = [
+    # Main clusters / pillars / parts seen in HE WPs
+    "Health",
+    "Culture, Creativity and Inclusive Society",
+    "Civil Security for Society",
+    "Digital, Industry and Space",
+    "Climate, Energy and Mobility",
+    "Food, Bioeconomy, Natural Resources, Agriculture and Environment",
+    "Research Infrastructures",
+    "Missions",
+    "New European Bauhaus",
+]
+
+_KNOWN_CLUSTERS_RE = re.compile(
+    r"^(?:"
+    + "|".join(re.escape(c) for c in _KNOWN_CLUSTERS)
+    + r")$",
+    re.IGNORECASE,
+)
+
+def detect_cluster(full_text: str) -> Optional[str]:
+    """
+    Inspect the first page/lines to infer the cluster.
+    Returns the cluster string or None if not found.
+    """
+    lines = [ln.strip() for ln in normalize_text(full_text).splitlines()]
+    if not lines:
+        return None
+
+    # Limit search window to the first ~80 lines
+    window = lines[:80]
+
+    # 1) Look for "Horizon Europe - Work Programme" and take the next meaningful line
+    wp_idx = None
+    for i, ln in enumerate(window):
+        if re.search(r"horizon europe\s*-\s*work programme", ln, re.IGNORECASE) or \
+           re.search(r"work programme\s*\d{4}", ln, re.IGNORECASE):
+            wp_idx = i
+            break
+
+    if wp_idx is not None:
+        for j in range(wp_idx + 1, min(wp_idx + 8, len(window))):
+            cand = window[j]
+            if not cand or cand.upper() == "EN":
+                continue
+            if re.match(r"^annex\b", cand, re.IGNORECASE):
+                continue
+            if re.search(r"\bpart\b\s*\d+", cand, re.IGNORECASE):
+                continue
+            if re.search(r"\bpage\b\s*\d+", cand, re.IGNORECASE):
+                continue
+            # Prefer a known cluster match; otherwise accept the first meaningful line
+            if _KNOWN_CLUSTERS_RE.match(cand):
+                return _canonicalise_cluster(cand)
+            # If it's a decent-looking title line (title case / commas / 'and'), accept it
+            if _looks_like_cluster_title(cand):
+                return _canonicalise_cluster(cand)
+
+    # 2) Fallback: match any known cluster anywhere in the window
+    for cand in window:
+        if _KNOWN_CLUSTERS_RE.match(cand):
+            return _canonicalise_cluster(cand)
+
+    return None
+
+def _canonicalise_cluster(s: str) -> str:
+    """Return the canonical cluster spelling if it matches a known cluster."""
+    for c in _KNOWN_CLUSTERS:
+        if c.lower() == s.strip().lower():
+            return c
+    return s.strip()
+
+def _looks_like_cluster_title(s: str) -> bool:
+    """
+    Heuristic: cluster lines are short-ish headings, often with commas and/or 'and'.
+    Avoid obvious boilerplate. Keep conservative to prevent false positives.
+    """
+    if len(s) < 5 or len(s) > 120:
+        return False
+    if re.search(r"(horizon europe|work programme|annex|part\s+\d+|page\s+\d+)", s, re.IGNORECASE):
+        return False
+    # Require alphabetic density
+    letters = sum(ch.isalpha() for ch in s)
+    digits = sum(ch.isdigit() for ch in s)
+    if letters <= max(5, 2 * digits):
+        return False
+    # Presence of separators typical of cluster names
+    if ("," in s) or re.search(r"\band\b", s, re.IGNORECASE):
+        return True
+    # Title-ish case (most words start uppercase)
+    words = [w for w in re.split(r"\s+", s) if w]
+    uc = sum(1 for w in words if re.match(r"^[A-Z][A-Za-z\-]+$", w))
+    return uc >= max(2, int(0.6 * len(words)))
+
+
+# =============================================================================
 # TOPIC EXTRACTION
 #   - Detects HORIZON topic headers and slices out each topic's text block.
 # =============================================================================
@@ -179,13 +283,13 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 # Dates like: 23 Sep 2025 / 23 Sept. 2025 / 23 September 2025
 DATE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}\b")
 
-# Accept colon or dash (ASCII '-', en dash '–', em dash '—') after 'Destination'
+# Accept colon or dash after 'Destination'
 DEST_SEP = r"[-–—:]"
 
 # Triggers with optional spacing/case variants
 OPENING_TRIGGER_RE  = re.compile(r"^\s*opening(?:\s*date)?\s*:\s*", re.IGNORECASE)
 DEADLINE_TRIGGER_RE = re.compile(r"^\s*deadline", re.IGNORECASE)
-# Updated to accept ':' or any dash after 'Destination' (+ optional number)
+# UPDATED trigger to support ':' or dashes after 'Destination' (with optional numbering)
 DEST_TRIGGER_RE     = re.compile(rf"^\s*destination(?:\s*\d+)?\s*{DEST_SEP}\s*", re.IGNORECASE)
 
 def _find_first_date_in(lines: List[str]) -> str | None:
@@ -219,7 +323,7 @@ def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
 # Topic header code (used as a boundary for the interstitial fallback)
 TOPIC_CODE_RE = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
 
-# Explicit "Destination" line (with optional numbering: "Destination 1:")
+# Explicit "Destination" line (with optional numbering & ':' or dashes)
 DEST_LINE_RE = re.compile(rf"^\s*destination(?:\s*\d+)?\s*{DEST_SEP}\s*(.*)$", re.IGNORECASE)
 
 # Section starts that should stop continuation (Opening/Deadline/Destination/Topic)
@@ -299,7 +403,6 @@ def _capture_interstitial_destination(lines: List[str], date_idx: int, *, max_sp
 #   - Preserves original single-deadline behaviour
 #   - Adds optional two-stage dates guarded by code containing '-two-stage'
 #   - Adds boolean is_two_stage
-#   - First-write-wins and case-normalised keys for robust merge
 # =============================================================================
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
@@ -373,12 +476,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 
         # --- Destination (explicit line) ---
         if collecting and DEST_TRIGGER_RE.match(line):
-            # Keep explicit capture consistent with the regex that accepts ':' or dashes
-            m = DEST_LINE_RE.match(line)
-            if m:
-                current_metadata["destination"] = m.group(1).strip()
-            else:
-                current_metadata["destination"] = line.split(":", 1)[-1].strip()
+            current_metadata["destination"] = line.split(":", 1)[-1].strip() if ":" in line else line.split("-", 1)[-1].strip()
             continue
 
         # --- Topic boundary: attach snapshot (first-write-wins) ---
@@ -431,50 +529,22 @@ def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
 
 
 # =============================================================================
-# CLUSTER DETECTION (from the very beginning of the file)
-# =============================================================================
-_CLUSTER_LINE_RE = re.compile(r"^\s*(\d+)\.\s*(.+?)\s*$")
-
-def extract_cluster_header(text: str) -> Dict[str, Any]:
-    """
-    Find a leading line like '8. Climate, Energy and Mobility' near the start of the PDF.
-    Returns a dict with 'cluster_title', 'cluster_number', 'cluster_index' (number - 3).
-    """
-    lines = normalize_text(text).splitlines()
-    # Look only near the beginning to avoid false matches later in the WP.
-    for line in lines[:120]:
-        m = _CLUSTER_LINE_RE.match(line)
-        if not m:
-            continue
-        num = int(m.group(1))
-        name = m.group(2).strip()
-        # Guard against obvious non-cluster lines
-        if name.lower().startswith(("part", "page", "annex")):
-            continue
-        return {
-            "cluster_title": f"{num}. {name}",
-            "cluster_number": num,
-            "cluster_index": num - 3
-        }
-    return {"cluster_title": None, "cluster_number": None, "cluster_index": None}
-
-
-# =============================================================================
 # PUBLIC API: parse_pdf -> DataFrame
 #   - Orchestrates extraction and returns a DF with ISO-only date columns
+#   - Adds 'Cluster' column from the beginning of the file
 #   - Preserves all original business logic
 # =============================================================================
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
     Orchestrates the pipeline and returns a DataFrame that matches the app's output.
-    Produces only ISO-formatted date columns + boolean 'Two-Stage' + cluster columns.
+    Produces only ISO-formatted date columns + boolean 'Two-Stage' + 'Cluster'.
     """
     # Read bytes once, then work with a new BytesIO so downstream .read() works
     pdf_bytes = file_like.read()
     raw_text = extract_text_from_pdf(BytesIO(pdf_bytes))
 
-    # Detect cluster once from the whole document
-    cluster_info = extract_cluster_header(raw_text)
+    # Detect cluster once for the whole document
+    cluster = detect_cluster(raw_text)
 
     topic_blocks = extract_topic_blocks(raw_text)
     metadata_by_code = extract_metadata_blocks(raw_text)
@@ -502,12 +572,10 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         # Boolean flag for single/two-stage logic in downstream visuals
         "Two-Stage": bool(t.get("is_two_stage")),
 
+        # Cluster detected from the document header
+        "Cluster": cluster,
+
         "Destination": t.get("destination"),
-
-        # Cluster columns
-        "Cluster": cluster_info["cluster_title"],       # e.g., "8. Climate, Energy and Mobility"
-        "Cluster Index": cluster_info["cluster_index"], # e.g., 5 (8 - 3)
-
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
         "Number of Projects": int(t["indicative_total_budget"] / t["budget_per_project"])
