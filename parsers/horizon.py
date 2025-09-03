@@ -178,11 +178,12 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 
 # Dates like: 23 Sep 2025 / 23 Sept. 2025 / 23 September 2025
 DATE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}\b")
+DEST_SEP = r"[-–—:]"  # reusable separator charclass
 
 # Triggers with optional spacing/case variants
 OPENING_TRIGGER_RE  = re.compile(r"^\s*opening(?:\s*date)?\s*:\s*", re.IGNORECASE)
 DEADLINE_TRIGGER_RE = re.compile(r"^\s*deadline", re.IGNORECASE)
-DEST_TRIGGER_RE     = re.compile(r"^\s*destination\s*:", re.IGNORECASE)
+DEST_TRIGGER_RE     = re.compile(rf"^\s*destination(?:\s*\d+)?\s*{DEST_SEP}\s*", re.IGNORECASE)
 
 def _find_first_date_in(lines: List[str]) -> str | None:
     """Return first date string found across the given lines; else None."""
@@ -216,11 +217,11 @@ def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
 TOPIC_CODE_RE = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
 
 # Explicit "Destination" line (with optional numbering: "Destination 1:")
-DEST_LINE_RE = re.compile(r"^\s*destination(?:\s*\d+)?\s*:\s*(.*)$", re.IGNORECASE)
+DEST_LINE_RE = re.compile(rf"^\s*destination(?:\s*\d+)?\s*{DEST_SEP}\s*(.*)$", re.IGNORECASE)
 
 # Section starts that should stop continuation (Opening/Deadline/Destination/Topic)
 SECTION_START_RE = re.compile(
-    r"^\s*(opening(?:\s*date)?\s*:|deadline|destination\s*:|destination\s*\d+\s*:|horizon-[a-z0-9\-]+:)",
+    rf"^\s*(opening(?:\s*date)?\s*:|deadline|destination(?:\s*\d+)?\s*{DEST_SEP}\s*|horizon-[a-z0-9\-]+:)",
     re.IGNORECASE
 )
 
