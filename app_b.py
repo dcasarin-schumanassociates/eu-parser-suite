@@ -151,10 +151,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     if seg.empty:
         return None
 
-    # Stable y order and sizes
+    # Stable y order & sizing
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 50  # taller for larger font + wraps
+    row_height = 50
     chart_height = max(560, unique_rows * row_height)
 
     # Persistent domain
@@ -165,7 +165,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     min_x = min(seg["start"].min(), seg["end"].min())
     max_x = max(seg["start"].max(), seg["end"].max())
 
-    # Background monthly shading
+    # ----- Calendar backgrounds -----
+    # Monthly shading (alternating bands)
     bands_df = build_month_bands(min_x, max_x)
     month_shade = (
         alt.Chart(bands_df)
@@ -178,30 +179,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         )
     )
 
-    # Row bands by Type of Action (low opacity, across x domain)
-    # Build one record per y_label with its type_of_action, and x0/x1 to span the view
-    row_bands_src = (
-        seg.groupby(["y_label"], as_index=False)["type_of_action"]
-           .agg(lambda x: x.dropna().iloc[0] if x.dropna().size else "Unknown")
-    )
-    row_bands_src["x0"] = pd.to_datetime(domain_min)
-    row_bands_src["x1"] = pd.to_datetime(domain_max)
-
-    row_bands = (
-        alt.Chart(row_bands_src)
-        .mark_bar()
-        .encode(
-            y=alt.Y("y_label:N", sort=y_order, axis=alt.Axis(title=None, labels=False, ticks=False)),
-            x=alt.X("x0:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
-            x2=alt.X2("x1:T"),
-            color=alt.Color("type_of_action:N",
-                            scale=alt.Scale(scheme="tableau10"),
-                            legend=alt.Legend(title="Type of Action")),
-            opacity=alt.value(0.10)
-        )
-    )
-
-    # Grid lines
+    # Weekly & monthly grid lines
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
@@ -220,23 +198,25 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         .encode(x="t:T")
     )
 
-    # Base: left-aligned, wrapped labels, bigger font
+    # ----- Base encodings (bars decide the y-axis) -----
     base = alt.Chart(seg).encode(
         y=alt.Y(
             "y_label:N",
             sort=y_order,
+            scale=alt.Scale(domain=y_order),  # pin domain on the bar layer
             axis=alt.Axis(
                 title=None,
                 labelLimit=6000,
                 labelFontSize=14,
                 labelAlign="left",
-                labelPadding=8
+                labelPadding=8,
+                labelOverlap=False  # never drop labels
             )
         ),
         color=alt.Color("programme:N", legend=None),
     )
 
-    # Bars (segments)
+    # Bars (segments) — FIRST in the layer order so its axis is used
     bars = base.mark_bar(cornerRadius=3).encode(
         x=alt.X(
             "start:T",
@@ -268,13 +248,40 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=11, color="#111")\
                        .encode(x="end:T",   text=alt.Text("end:T",   format="%d %b"))
 
+    # ----- Row bands by Type of Action -----
+    # Build one record per y row
+    row_bands_src = (
+        seg.groupby(["y_label"], as_index=False)["type_of_action"]
+           .agg(lambda x: x.dropna().iloc[0] if x.dropna().size else "Unknown")
+    )
+    row_bands_src["x0"] = pd.to_datetime(domain_min)
+    row_bands_src["x1"] = pd.to_datetime(domain_max)
+
+    row_bands = (
+        alt.Chart(row_bands_src)
+        .mark_bar()
+        .encode(
+            # Make sure this layer uses the SAME y-scale domain (but NO axis here)
+            y=alt.Y("y_label:N", sort=y_order, scale=alt.Scale(domain=y_order), axis=None),
+            x=alt.X("x0:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
+            x2=alt.X2("x1:T"),
+            color=alt.Color("type_of_action:N",
+                            scale=alt.Scale(scheme="tableau10"),
+                            legend=alt.Legend(title="Type of Action")),
+            opacity=alt.value(0.10)
+        )
+    )
+
+    # ----- Layering (bars FIRST so their axis shows), then overlays -----
     chart = (
-        (row_bands + month_shade + week_grid + month_grid + bars + start_labels + end_labels)
+        (bars + start_labels + end_labels + row_bands + month_shade + week_grid + month_grid)
         .properties(height=chart_height)
+        .resolve_scale(y='shared')   # explicit (default), keeps one y-axis
         .configure_axis(grid=False)
         .configure_view(strokeWidth=0)
     )
     return chart
+
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
