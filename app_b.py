@@ -69,10 +69,10 @@ def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
         df["two_stage"] = False
     return df
 
-def wrap_label(text: str, width=36, max_lines=3) -> str:
+def wrap_label(text: str, width=100, max_lines=2) -> str:
     s = str(text or "")
     parts = [s[i:i+width] for i in range(0, len(s), width)]
-    return "\n".join(parts[:max_lines])
+    return "\\n".join(parts[:max_lines])   # note the double backslash
 
 def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
     s = pd.to_datetime(series, errors="coerce").dropna()
