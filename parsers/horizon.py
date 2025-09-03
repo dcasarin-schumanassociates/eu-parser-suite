@@ -224,7 +224,11 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     return metadata_map
 
 # ========== Public API ==========
-ef parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
+import pandas as pd
+from io import BytesIO
+from typing import Any, Dict
+
+def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
     Orchestrates your working pipeline and returns a DataFrame that matches your current app's output.
     No Streamlit here; just pure parsing.
