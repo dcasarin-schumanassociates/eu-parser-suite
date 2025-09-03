@@ -182,7 +182,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     # Stable y order and sizes
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 30  # larger for wrapped labels
+    row_height = 10  # larger for wrapped labels
     chart_height = max(1080, unique_rows * row_height)
 
     # Persistent domain
@@ -233,9 +233,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             axis=alt.Axis(
                 title=None,
                 labelLimit=8000,
-                labelFontSize=14,
+                labelFontSize=12,
                 labelAlign="left",
-                labelPadding=-10
+                labelPadding=10
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
@@ -277,7 +277,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     inbar = base.mark_text(
         align="center",
         baseline="middle",
-        fontSize=12,
+        fontSize=10,
         fill="white",             # white font
         stroke=None               # remove outline (or set stroke="black" if you want a thin outline)
     ).encode(
