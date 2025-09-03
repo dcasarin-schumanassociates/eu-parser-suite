@@ -115,7 +115,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         code = str(r.get("code") or "")
         title = str(r.get("title") or "")
         # Left-axis label (longer, wrapped):
-        y_label = wrap_label(f"{code} — {title}", width=36, max_lines=3)
+        y_label = wrap_label(f"{code}", width=50, max_lines=5)
 
         prog = r.get("programme")
         open_dt   = r.get("opening_date")
@@ -125,7 +125,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         two_stage = bool(r.get("two_stage"))
 
         # A short, 2-line label for in-bar annotation (title only)
-        title_inbar = wrap_label(title, width=26, max_lines=3)
+        title_inbar = wrap_label(title, width=50, max_lines=3)
 
         if two_stage:
             # Segment A: Opening -> First
@@ -235,7 +235,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=8000,
                 labelFontSize=14,
                 labelAlign="left",
-                labelPadding=20
+                labelPadding=-10
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
