@@ -1,4 +1,4 @@
-# app_b.py — Altair Gantt with monthly shading, start/end labels, top axis, zoom
+# app_b.py — Altair Gantt with persistent view window, robust labels
 from __future__ import annotations
 import io
 import pandas as pd
@@ -40,29 +40,23 @@ DISPLAY_COLS = [
 
 # ---------- Helpers ----------
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
-    # Trim and map headers
     df.columns = [c.strip() for c in df.columns]
     for src, dst in COLUMN_MAP.items():
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
-    # Normalise leftover headers
     df = df.rename(columns={c: c.strip().lower() for c in df.columns})
 
-    # Programme default
     if "programme" not in df.columns:
         df["programme"] = "Horizon Europe"
 
-    # Dates (EU day-first)
     for c in ("opening_date","deadline","first_deadline","second_deadline"):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
 
-    # Numerics
     for c in ("budget_per_project_eur","total_budget_eur","trl","num_projects"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # Two-stage to bool-like
     if "two_stage" in df.columns:
         df["two_stage"] = (
             df["two_stage"].astype(str).str.strip().str.lower()
@@ -90,14 +84,12 @@ def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
     return lo, hi
 
 def wrap_label(text: str, width=38, max_lines=3) -> str:
-    """Hard-wrap every `width` chars, cap to `max_lines`."""
     s = str(text or "")
     parts = [s[i:i+width] for i in range(0, len(s), width)]
     parts = parts[:max_lines]
     return "\n".join(parts)
 
 def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
-    """Create alternating month spans for background shading."""
     start = pd.Timestamp(min_x).to_period("M").start_time
     end   = (pd.Timestamp(max_x).to_period("M") + 1).start_time
     months = pd.date_range(start, end, freq="MS")
@@ -106,7 +98,7 @@ def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
         rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
     return pd.DataFrame(rows)
 
-def build_altair_chart(df: pd.DataFrame, end_col: str):
+def build_altair_chart(df: pd.DataFrame, end_col: str, view_start, view_end):
     # Sort key: earliest of any deadline
     g = df.copy()
     g["earliest_deadline"] = pd.to_datetime(
@@ -126,7 +118,7 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
     if g.empty:
         return None
 
-    # Wrapped y-label: CODE — Title
+    # Stable, wrapped y-label (CODE — Title). Keep it unique by including the code.
     full_label = g["code"].fillna("").astype(str) + " — " + g["title"].astype(str)
     g = g.assign(y_label=[wrap_label(t, width=38, max_lines=3) for t in full_label])
 
@@ -135,17 +127,16 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
     y_order = g["y_label"].tolist()
 
     # Chart height proportional to rows
-    row_height = 42  # extra room for wrapped labels
-    chart_height = max(480, len(g) * row_height)
+    row_height = 46  # more room for wrapped labels
+    chart_height = max(520, len(g) * row_height)
 
-    # Calendar domain and padding (zoomed out a bit)
+    # Calendar domain from persistent view window
+    domain_min = pd.to_datetime(view_start)
+    domain_max = pd.to_datetime(view_end)
+
+    # Background monthly shading (based on actual data span for nicer alternation)
     min_x = min(g["opening_date"].min(), g[end_col].min())
     max_x = max(g["opening_date"].max(), g[end_col].max())
-    pad_days = 30
-    domain_min = pd.Timestamp(min_x) - pd.Timedelta(days=pad_days)
-    domain_max = pd.Timestamp(max_x) + pd.Timedelta(days=pad_days)
-
-    # Background monthly shading
     bands_df = build_month_bands(min_x, max_x)
     month_bands = (
         alt.Chart(bands_df)
@@ -158,7 +149,7 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         )
     )
 
-    # Monthly & weekly grid lines
+    # Monthly & weekly grid lines for stronger calendar look
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
@@ -182,7 +173,7 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         y=alt.Y(
             "y_label:N",
             sort=y_order,
-            axis=alt.Axis(title=None, labelLimit=1200, labelFontSize=12)  # bigger, don't drop labels
+            axis=alt.Axis(title=None, labelLimit=4000, labelFontSize=12)  # keep labels visible
         ),
         color=alt.Color("programme:N", legend=None),
     )
@@ -195,7 +186,7 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
                 title=None,
                 format="%b %Y",
                 tickCount="month",
-                orient="top",            # << top axis, as requested
+                orient="top",            # top axis (bigger)
                 labelFontSize=12,
                 tickSize=6
             ),
@@ -211,14 +202,13 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         ],
     )
 
-    # Start & End date labels on bars (short format)
+    # Start & End date labels on bars
     start_labels = base.mark_text(
         align="right", dx=-4, dy=-8, fontSize=11, color="#111"
     ).encode(
         x="opening_date:T",
         text=alt.Text("opening_date:T", format="%d %b"),
     )
-
     end_labels = base.mark_text(
         align="left", dx=4, dy=-8, fontSize=11, color="#111"
     ).encode(
@@ -226,12 +216,8 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         text=alt.Text(f"{end_col}:T", format="%d %b"),
     )
 
-    # Zoom / pan on x
-    zoom = alt.selection_interval(bind="scales", encodings=["x"])
-
     chart = (
         (month_bands + week_grid + month_grid + bars + start_labels + end_labels)
-        .add_params(zoom)
         .properties(height=chart_height)
         .configure_axis(grid=False)
         .configure_view(strokeWidth=0)
@@ -265,7 +251,7 @@ types      = st.sidebar.multiselect("Type of Action", options=type_opts)
 trls       = st.sidebar.multiselect("TRL", options=trl_opts)
 dests      = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
 
-# Dates: compute overall bounds from any deadline
+# Dates: compute overall bounds
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
 dead_all = pd.concat([
     pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -305,6 +291,30 @@ st.sidebar.header("Gantt options")
 deadline_mode = st.sidebar.selectbox("Deadline to plot", ["Final deadline", "First stage", "Second stage"], index=0)
 end_col = {"Final deadline": "deadline", "First stage": "first_deadline", "Second stage": "second_deadline"}[deadline_mode]
 
+# Persistent VIEW WINDOW (prevents reset on reruns/tab switches)
+st.sidebar.header("View window (persistent)")
+# Initialise session state once
+if "view_start" not in st.session_state or "view_end" not in st.session_state:
+    # default to data span padded by 30 days
+    data_min = min(pd.to_datetime(df.get("opening_date"), errors="coerce").min(),
+                   pd.to_datetime(df.get("deadline"), errors="coerce").min(),
+                   pd.to_datetime(df.get("first_deadline"), errors="coerce").min(),
+                   pd.to_datetime(df.get("second_deadline"), errors="coerce").min())
+    data_max = max(pd.to_datetime(df.get("opening_date"), errors="coerce").max(),
+                   pd.to_datetime(df.get("deadline"), errors="coerce").max(),
+                   pd.to_datetime(df.get("first_deadline"), errors="coerce").max(),
+                   pd.to_datetime(df.get("second_deadline"), errors="coerce").max())
+    pad = pd.Timedelta(days=30)
+    st.session_state.view_start = (data_min - pad).date() if pd.notna(data_min) else open_lo
+    st.session_state.view_end   = (data_max + pad).date() if pd.notna(data_max) else open_hi
+
+view_start = st.sidebar.date_input("View from", value=st.session_state.view_start)
+view_end   = st.sidebar.date_input("View to",   value=st.session_state.view_end)
+
+# Save back to session_state so it persists
+st.session_state.view_start = view_start
+st.session_state.view_end   = view_end
+
 # Apply filters
 df_kw = keyword_filter(df, keyword)
 f = df_kw.copy()
@@ -333,7 +343,7 @@ tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
 
 with tab1:
     st.subheader(f"Gantt (Opening → {deadline_mode})")
-    chart = build_altair_chart(f, end_col=end_col)
+    chart = build_altair_chart(f, end_col=end_col, view_start=view_start, view_end=view_end)
     if chart is None:
         st.info("No rows with valid Opening and selected deadline to display.")
     else:
