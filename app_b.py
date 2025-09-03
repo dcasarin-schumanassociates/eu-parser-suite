@@ -111,7 +111,6 @@ def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
     return pd.DataFrame(bands)
 
 def build_altair_chart(df: pd.DataFrame, end_col: str):
-    # Add "earliest_deadline" for sorting (min across available deadlines)
     g = df.copy()
     g["earliest_deadline"] = pd.to_datetime(
         pd.concat(
@@ -125,34 +124,38 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         errors="coerce",
     )
 
-    # keep rows that have opening + chosen end_col
     g = g.dropna(subset=["opening_date", end_col, "title"])
     if g.empty:
         return None
 
-    # y label: CODE — Title, wrapped to 2–3 lines
     full_label = g["code"].fillna("").astype(str) + " — " + g["title"].astype(str)
     g = g.assign(y_label=[wrap_label(t, width=38, max_lines=3) for t in full_label])
 
-    # sort by earliest deadline (ascending): urgent on top
     g = g.sort_values(["earliest_deadline", "opening_date"], ascending=[True, True])
-
-    # explicit y order to preserve sort
     y_order = g["y_label"].tolist()
 
-    # figure height proportional to rows
-    row_height = 34  # a touch taller for wrapped labels
+    row_height = 34
     chart_height = max(420, len(g) * row_height)
 
-    # ---- Calendar guides: shaded months + bold monthly + faint weekly ----
+    # ---- Calendar guides (fixed) ----
     min_x = min(g["opening_date"].min(), g[end_col].min())
     max_x = max(g["opening_date"].max(), g[end_col].max())
-    # pad the initial view (zoomed out a bit)
-    pad_days = 30
-    domain_min = (min_x - pd.Timedelta(days=pad_days))
-    domain_max = (max_x + pd.Timedelta(days=pad_days))
 
-    # monthly bands
+    # Pad initial domain to "zoom out" a bit
+    pad_days = 30
+    domain_min = pd.Timestamp(min_x) - pd.Timedelta(days=pad_days)
+    domain_max = pd.Timestamp(max_x) + pd.Timedelta(days=pad_days)
+
+    # Monthly bands
+    def build_month_bands(min_ts, max_ts):
+        start = pd.Timestamp(min_ts).to_period("M").start_time
+        end   = (pd.Timestamp(max_ts).to_period("M") + 1).start_time
+        months = pd.date_range(start, end, freq="MS")
+        rows = []
+        for i in range(len(months) - 1):
+            rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
+        return pd.DataFrame(rows)
+
     bands_df = build_month_bands(min_x, max_x)
     month_bands = (
         alt.Chart(bands_df)
@@ -160,46 +163,42 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         .encode(
             x=alt.X("start:T", axis=None),
             x2=alt.X2("end:T"),
-            # Alternate light gray bands; 0 = transparent, 1 = shaded
             opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]), legend=None),
-            color=alt.value("#000")  # color is irrelevant; opacity drives the shading
+            color=alt.value("#000"),
         )
     )
 
-    # monthly & weekly grid lines
-    months = pd.date_range(min_x.floor("D"), max_x.ceil("D"), freq="MS")
-    weeks  = pd.date_range(min_x.floor("W-MON"), max_x.ceil("D"), freq="W-MON")
+    # Monthly & weekly grid lines
+    months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
+                           pd.Timestamp(max_x).to_period("M").end_time,
+                           freq="MS")
+
+    # ✅ Monday-aligned week start (no .floor("W-MON"))
+    week_start = pd.Timestamp(min_x).to_period("W-MON").start_time
+    week_end   = pd.Timestamp(max_x).to_period("W-MON").start_time
+    weeks = pd.date_range(week_start, week_end, freq="W-MON")
 
     month_grid = (
         alt.Chart(pd.DataFrame({"t": months}))
-        .mark_rule(stroke="#9AA0A6", strokeWidth=1.5)  # darker, thicker monthly
+        .mark_rule(stroke="#9AA0A6", strokeWidth=1.5)
         .encode(x="t:T")
     )
     week_grid = (
         alt.Chart(pd.DataFrame({"t": weeks}))
-        .mark_rule(stroke="#E5E7EB", strokeWidth=1)    # lighter weekly
+        .mark_rule(stroke="#E5E7EB", strokeWidth=1)
         .encode(x="t:T")
     )
 
     # ---- Bars ----
     base = alt.Chart(g).encode(
-        y=alt.Y(
-            "y_label:N",
-            sort=y_order,
-            axis=alt.Axis(title=None, labelLimit=380)
-        ),
+        y=alt.Y("y_label:N", sort=y_order, axis=alt.Axis(title=None, labelLimit=380)),
         color=alt.Color("programme:N", legend=None),
     )
-
     bars = base.mark_bar(cornerRadius=3).encode(
         x=alt.X(
             "opening_date:T",
-            axis=alt.Axis(
-                title=None,
-                format="%b %Y",          # month label
-                tickCount="month"        # monthly ticks
-            ),
-            scale=alt.Scale(domain=[domain_min, domain_max])  # start a bit zoomed out
+            axis=alt.Axis(title=None, format="%b %Y", tickCount="month"),
+            scale=alt.Scale(domain=[domain_min, domain_max])
         ),
         x2=alt.X2(f"{end_col}:T"),
         tooltip=[
@@ -211,7 +210,6 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         ],
     )
 
-    # Enable pan/zoom on x-axis
     zoom = alt.selection_interval(bind="scales", encodings=["x"])
 
     chart = (
@@ -222,6 +220,7 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         .configure_view(strokeWidth=0)
     )
     return chart
+
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer (Altair)", layout="wide")
