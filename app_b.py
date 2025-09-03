@@ -235,11 +235,14 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=8000,
                 labelFontSize=12,
                 labelAlign="left",
-                labelPadding=10
+                labelPadding=4,
+                domain=True,          # <--- force draw vertical line
+                ticks=False           # optional, removes little tick marks
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
     )
+
 
     # Bars (segments)
     bars = base.mark_bar(cornerRadius=3).encode(
@@ -289,7 +292,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     chart = (
         (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)
         .properties(height=chart_height)
-        .configure_axis(grid=False)
+        .configure_view(strokeWidth=0)
         .configure_view(strokeWidth=0)
     )
     return chart
