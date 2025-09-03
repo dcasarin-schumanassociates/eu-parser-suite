@@ -185,15 +185,12 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     row_height = 50  # larger for wrapped labels
     chart_height = max(560, unique_rows * row_height)
 
-    # Persistent domain
     domain_min = pd.to_datetime(view_start)
     domain_max = pd.to_datetime(view_end)
 
-    # Data span for calendar layers
     min_x = min(seg["start"].min(), seg["end"].min())
     max_x = max(seg["start"].max(), seg["end"].max())
 
-    # Background monthly shading (very light)
     bands_df = build_month_bands(min_x, max_x)
     month_shade = (
         alt.Chart(bands_df)
@@ -205,6 +202,24 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             color=alt.value("#000"),
         )
     )
+
+    # >>> KEY CHANGE: extend label area and padding <<<
+    base = alt.Chart(seg).encode(
+        y=alt.Y(
+            "y_label:N",
+            sort=y_order,
+            axis=alt.Axis(
+                title=None,
+                labelLimit=1200,   # more width reserved for text wrapping
+                labelFontSize=14,
+                labelAlign="left",
+                labelPadding=12,   # add extra gap between axis and bars
+                labelFlush=False   # prevents truncating long text
+            )
+        ),
+        color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
+    )
+    
 
     # Grid lines
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
