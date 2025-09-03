@@ -1,28 +1,50 @@
 # parsers/horizon.py
 from __future__ import annotations
+
+# ===== Imports (standard lib) =====
 import re
 from io import BytesIO
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+
+# ===== Imports (third-party) =====
 import fitz  # PyMuPDF
 import pandas as pd
 
-# ========== PDF Parsing ==========
+
+# =============================================================================
+# PDF PARSING
+# =============================================================================
 def extract_text_from_pdf(file_like: BytesIO) -> str:
-    # file_like should be positioned at start
+    """
+    Extract text from a PDF-like stream (positioned at start) as a single string.
+    """
     with fitz.open(stream=file_like.read(), filetype="pdf") as doc:
         return "\n".join(page.get_text() for page in doc)
 
-# ========== Utility ==========
+
+# =============================================================================
+# TEXT NORMALISATION UTIL
+# =============================================================================
 def normalize_text(text: str) -> str:
+    """
+    Normalise whitespace and line breaks; collapse runs of spaces/tabs/newlines.
+    """
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     text = re.sub(r"\xa0", " ", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n+", "\n", text)
     return text.strip()
 
-# ========== Topic Extraction ==========
+
+# =============================================================================
+# TOPIC EXTRACTION
+#   - Detects HORIZON topic headers and slices out each topic's text block.
+# =============================================================================
 def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
     lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    # Join split code/title lines (e.g. code on one line, title on the next)
     fixed_lines = []
     i = 0
     while i < len(lines):
@@ -38,7 +60,8 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
     for i, line in enumerate(fixed_lines):
         match = re.match(topic_pattern, line)
         if match:
-            lookahead_text = "\n".join(fixed_lines[i+1:i+20]).lower()
+            # Heuristic: only consider as topic if the next lines contain key markers
+            lookahead_text = "\n".join(fixed_lines[i + 1:i + 20]).lower()
             if any(key in lookahead_text for key in ["call:", "type of action"]):
                 candidate_topics.append({
                     "code": match.group(1),
@@ -46,6 +69,7 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
                     "start_line": i
                 })
 
+    # Slice text blocks between topic headers, stopping early at "This destination"
     topic_blocks = []
     for idx, topic in enumerate(candidate_topics):
         start = topic["start_line"]
@@ -62,7 +86,11 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
 
     return topic_blocks
 
-# ========== Field Extraction ==========
+
+# =============================================================================
+# FIELD EXTRACTION (within a topic block)
+#   - Budget, total budget, type of action, sections, call name, TRL, etc.
+# =============================================================================
 def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
     text = normalize_text(topic["full_text"])
 
@@ -140,11 +168,11 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
         )
     }
 
-import re
-from typing import Any, Dict
 
-# Helper: parse two-stage deadlines of the form
-# "Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)"
+# =============================================================================
+# DEADLINE PARSING HELPERS (two-stage; keeps original single-date detection elsewhere)
+# =============================================================================
+# Example: "Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)"
 DATE_TOKEN = r"\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}"
 TWO_STAGE_DEADLINES_RE = re.compile(
     rf"deadline\(s\)\s*:\s*"
@@ -154,6 +182,10 @@ TWO_STAGE_DEADLINES_RE = re.compile(
 )
 
 def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
+    """
+    Return {'deadline_stage1': 'DD Mon YYYY', 'deadline_stage2': 'DD Mon YYYY'}
+    if a two-stage pattern is present on the given line; otherwise {}.
+    """
     m = TWO_STAGE_DEADLINES_RE.search(line)
     if not m:
         return {}
@@ -163,6 +195,13 @@ def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
         "deadline_stage2": m.group(3),
     }
 
+
+# =============================================================================
+# METADATA EXTRACTION (opening date, deadlines, destination) PER TOPIC
+#   - Preserves original single-deadline behaviour
+#   - Adds optional two-stage dates guarded by code containing '-two-stage'
+#   - Adds boolean is_two_stage
+# =============================================================================
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
 
@@ -173,10 +212,10 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         "deadline_stage1": None,   # only for two-stage topics
         "deadline_stage2": None,   # only for two-stage topics
         "destination": None,
-        "is_two_stage": False,     # NEW
+        "is_two_stage": False,     # boolean flag
     }
 
-    # Case-insensitive: your codes can contain lowercase (e.g. ...-two-stage)
+    # Case-insensitive: codes can contain lowercase (e.g. ...-two-stage)
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
     collecting = False
 
@@ -186,7 +225,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         if lower.startswith("opening:"):
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["opening_date"] = m.group(1) if m else None
-            # reset per-call metadata
+            # Reset per-call metadata on new 'Opening:' section
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
@@ -199,11 +238,11 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["deadline"] = m.group(1) if m else None
 
-            # Try parsing two-stage deadlines on the same line
+            # Additional two-stage parse attempt on the same line
             extra = parse_two_stage_deadlines(line)
             if extra:
                 current_metadata.update(extra)
-                # don't set the boolean yet; we’ll gate it per-topic code
+                # Note: the boolean is set when we attach to a specific topic code
 
         elif collecting and lower.startswith("destination"):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
@@ -214,7 +253,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                 code = match.group(1)
                 to_save = current_metadata.copy()
 
-                # IMPORTANT: only attach two-stage metadata to two-stage topics
+                # Only attach two-stage data to '-two-stage' topics
                 if "-two-stage" in code.lower():
                     to_save["is_two_stage"] = bool(
                         to_save.get("deadline_stage1") and to_save.get("deadline_stage2")
@@ -228,14 +267,15 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 
     return metadata_map
 
-# ========== Public API ==========
-import pandas as pd
-from io import BytesIO
-from typing import Any, Dict, Optional
-from datetime import datetime
 
-# Small helper: normalise "23 Sep 2025", "23 September 2025", "23 Sept. 2025" → "2025-09-23"
+# =============================================================================
+# DATE NORMALISATION (for ISO-only output columns)
+# =============================================================================
 def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
+    """
+    Convert 'DD Mon YYYY' / 'DD Month YYYY' (with optional trailing '.' on month)
+    to ISO 'YYYY-MM-DD'. Returns None if parsing fails or input is falsey.
+    """
     if not d:
         return None
     s = " ".join(d.strip().split())  # collapse spaces
@@ -250,12 +290,18 @@ def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
             return datetime.strptime(s, fmt).date().isoformat()
         except ValueError:
             pass
-    return None  # keep strict; avoids silent misparses
+    return None
 
+
+# =============================================================================
+# PUBLIC API: parse_pdf -> DataFrame
+#   - Orchestrates extraction and returns a DF with ISO-only date columns
+#   - Preserves all original business logic
+# =============================================================================
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
-    Orchestrates your working pipeline and returns a DataFrame that matches your current app's output.
-    No Streamlit here; just pure parsing.
+    Orchestrates the pipeline and returns a DataFrame that matches the app's output.
+    Produces only ISO-formatted date columns + boolean 'Two-Stage'.
     """
     # Read bytes once, then work with a new BytesIO so downstream .read() works
     pdf_bytes = file_like.read()
@@ -277,18 +323,13 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
 
-        "Opening Date": t.get("opening_date"),
-        "Deadline": t.get("deadline"),
-        "First Stage Deadline": t.get("deadline_stage1"),
-        "Second Stage Deadline": t.get("deadline_stage2"),
+        # ISO-only date fields
+        "Opening Date": _normalise_date_iso(t.get("opening_date")),
+        "Deadline": _normalise_date_iso(t.get("deadline")),
+        "First Stage Deadline": _normalise_date_iso(t.get("deadline_stage1")),
+        "Second Stage Deadline": _normalise_date_iso(t.get("deadline_stage2")),
 
-        # ISO-normalised mirrors (safe for calendar/Gantt)
-        "Opening Date (ISO)": _normalise_date_iso(t.get("opening_date")),
-        "Deadline (ISO)": _normalise_date_iso(t.get("deadline")),
-        "First Stage Deadline (ISO)": _normalise_date_iso(t.get("deadline_stage1")),
-        "Second Stage Deadline (ISO)": _normalise_date_iso(t.get("deadline_stage2")),
-
-        # Boolean flag for branching in visualisations/logic
+        # Boolean flag for single/two-stage logic in downstream visuals
         "Two-Stage": bool(t.get("is_two_stage")),
 
         "Destination": t.get("destination"),
@@ -302,11 +343,11 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
-        # provenance (optional)
+
+        # provenance
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
     } for t in enriched])
 
     return df
-
