@@ -178,21 +178,21 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     if seg.empty:
         return None
 
-    # Stable y order and sizes
+    # ---- Stable order & size
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 10  # larger for wrapped labels
+    row_height = 10
     chart_height = max(1080, unique_rows * row_height)
 
-    # Persistent domain
+    # ---- Domain
     domain_min = pd.to_datetime(view_start)
     domain_max = pd.to_datetime(view_end)
 
-    # Data span for calendar layers
+    # ---- Calendar span
     min_x = min(seg["start"].min(), seg["end"].min())
     max_x = max(seg["start"].max(), seg["end"].max())
 
-    # Background monthly shading (very light)
+    # ---- Month bands (background)
     bands_df = build_month_bands(min_x, max_x)
     month_shade = (
         alt.Chart(bands_df)
@@ -205,53 +205,37 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         )
     )
 
-    # Grid lines
+    # ---- Grid lines
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
-    week_start = pd.Timestamp(min_x).to_period("W-MON").start_time
-    week_end   = pd.Timestamp(max_x).to_period("W-MON").start_time
-    weeks = pd.date_range(week_start, week_end, freq="W-MON")
+    weeks = pd.date_range(pd.Timestamp(min_x).to_period("W-MON").start_time,
+                          pd.Timestamp(max_x).to_period("W-MON").start_time,
+                          freq="W-MON")
+    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#9AA0A6", strokeWidth=1.5).encode(x="t:T")
+    week_grid  = alt.Chart(pd.DataFrame({"t": weeks})).mark_rule(stroke="#E5E7EB", strokeWidth=1).encode(x="t:T")
 
-    month_grid = (
-        alt.Chart(pd.DataFrame({"t": months}))
-        .mark_rule(stroke="#9AA0A6", strokeWidth=1.5)
-        .encode(x="t:T")
-    )
-    week_grid = (
-        alt.Chart(pd.DataFrame({"t": weeks}))
-        .mark_rule(stroke="#E5E7EB", strokeWidth=1)
-        .encode(x="t:T")
-    )
-
-    # Base: left y labels (visible, left-aligned, wrapped)
+    # ---- Base (hide y labels on the axis; we will draw our own)
     base = alt.Chart(seg).encode(
         y=alt.Y(
             "y_label:N",
             sort=y_order,
             axis=alt.Axis(
                 title=None,
-                labelLimit=8000,
-                labelFontSize=13,
-                labelAlign="right",
-                labelPadding=4,
-                domain=True,
+                labels=False,   # <-- hide built-in labels
                 ticks=False,
-                labelExpr="replace(datum.label, '\\\\n', '\\n')"  # 👈 key bit
+                domain=False    # <-- we draw our own vertical rule
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
     )
 
-
-    # Bars (segments)
+    # ---- Bars
     bars = base.mark_bar(cornerRadius=3).encode(
         x=alt.X(
             "start:T",
-            axis=alt.Axis(
-                title=None, format="%b %Y", tickCount="month",
-                orient="top", labelFontSize=12, tickSize=6
-            ),
+            axis=alt.Axis(title=None, format="%b %Y", tickCount="month",
+                          orient="top", labelFontSize=12, tickSize=6),
             scale=alt.Scale(domain=[domain_min, domain_max]),
         ),
         x2=alt.X2("end:T"),
@@ -264,38 +248,54 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         ],
     )
 
-    # Start/End date labels (small, above bar)
+    # ---- Start/End labels above bars
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111")\
                        .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=11, color="#111")\
                        .encode(x="end:T",   text=alt.Text("end:T",   format="%d %b"))
 
-    # In-bar title annotation (centre). Uses wrapped title_inbar text.
-    text_cond = alt.condition(
-        alt.datum.bar_days >= 10,
-        alt.value(1),  # show if bar long enough
-        alt.value(0)   # hide otherwise
-    )
-    
+    # ---- OPTIONAL: In-bar text (leave it out if you want clean bars)
+    text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     inbar = base.mark_text(
-        align="center",
-        baseline="middle",
-        fontSize=10,
-        fill="white",             # white font
-        stroke=None               # remove outline (or set stroke="black" if you want a thin outline)
+        align="center", baseline="middle", fontSize=10, fill="white", stroke=None
     ).encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
-        text=alt.Text("title_inbar:N"),   # wrapped version
+        text=alt.Text("title_inbar:N"),
         opacity=text_cond
     )
 
-    chart = (
-        (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)
-        .properties(height=chart_height, width=3600)
-        .configure_view(strokeWidth=0)
-        .configure_view(strokeWidth=0)
+    # ---- LEFT AXIS LINE (solid) at the view start
+    y_axis_rule = alt.Chart(pd.DataFrame({"x": [domain_min]})).mark_rule(
+        stroke="#111", strokeWidth=1.0
+    ).encode(x=alt.X("x:T", scale=alt.Scale(domain=[domain_min, domain_max])))
+
+    # ---- CUSTOM MULTI-LINE Y LABELS (use your wrapped y_label with '\n')
+    # Put all labels at the left boundary (domain_min) and right-align them.
+    seg_labels = seg.assign(_x=domain_min)
+    left_labels = (
+        alt.Chart(seg_labels)
+        .mark_text(align="right", baseline="middle", dx=-6, fontSize=13)  # dx moves labels left of the rule
+        .encode(
+            x=alt.X("_x:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
+            y=alt.Y("y_label:N", sort=y_order, axis=None),
+            text="y_label:N"     # must already contain '\n' from your wrap_label(..., max_lines=2)
+        )
     )
+
+    chart = (
+        month_shade
+        + week_grid
+        + month_grid
+        + y_axis_rule     # draw the axis line
+        + left_labels     # draw wrapped labels
+        + bars
+        + start_labels
+        + end_labels
+        # + inbar        # uncomment if you still want in-bar text
+    ).properties(height=chart_height).configure_axis(grid=False).configure_view(strokeWidth=0)
+
     return chart
+
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
