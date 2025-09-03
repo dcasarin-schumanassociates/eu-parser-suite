@@ -201,17 +201,6 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
         if not _looks_like_boundary(prev_line):
             continue
 
-        # Guard 2: require structural markers soon after the header
-        lookahead_text = "\n".join(fixed_lines[idx + 1: idx + 13])
-        if not _has_struct_markers(lookahead_text):
-            continue
-
-        candidate_topics.append({
-            "code": m.group(1),
-            "title": m.group(2).strip(),
-            "start_line": idx
-        })
-
     # Slice text blocks between accepted topic headers; stop early at "This destination"
     topic_blocks = []
     for i, topic in enumerate(candidate_topics):
