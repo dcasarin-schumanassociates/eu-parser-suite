@@ -219,13 +219,15 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
     collecting = False
 
-    for line in lines:
+    for raw_line in lines:
+        # >>> Minimal fix: strip leading/trailing spaces per line <<<
+        line = raw_line.strip()
         lower = line.lower()
 
         if lower.startswith("opening:"):
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["opening_date"] = m.group(1) if m else None
-            # Reset per-call metadata on new 'Opening:' section
+            # reset per-call metadata
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
@@ -242,13 +244,13 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             extra = parse_two_stage_deadlines(line)
             if extra:
                 current_metadata.update(extra)
-                # Note: the boolean is set when we attach to a specific topic code
+                # boolean is set when we attach to a specific topic code
 
         elif collecting and lower.startswith("destination"):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
 
         elif collecting:
-            match = topic_pattern.match(line)
+            match = topic_pattern.match(line)  # use stripped line here too
             if match:
                 code = match.group(1)
                 to_save = current_metadata.copy()
