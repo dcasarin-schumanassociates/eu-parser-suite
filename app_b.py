@@ -213,14 +213,14 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         text="title_inbar:N", opacity=text_cond
     )
 
-    chart = (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)\
-        .properties(height=chart_height)\
-        .configure_axis(grid=False)\
-        .configure_view(strokeWidth=0)\
-        .configure_axisY(labelLimit=12000)\
-        .configure_axis(labelFontSize=14)\
-        .configure_padding(left=280)
-    return chart
+    chart = (
+    (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)
+    .properties(height=chart_height, padding={"left": 280})  # <<< fix here
+    .configure_axis(grid=False)
+    .configure_view(strokeWidth=0)
+    .configure_axisY(labelLimit=12000)
+    .configure_axis(labelFontSize=14)
+    )
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
