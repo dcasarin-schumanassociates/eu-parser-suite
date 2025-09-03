@@ -235,9 +235,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelFontSize=13,
                 labelAlign="right",
                 labelPadding=4,
-                domain=True,          # <--- force draw vertical line
-                ticks=False,           # optional, removes little tick marks
-                labelExpr="replace(datum.label, '\\\\n', '\\n')"
+                domain=True,
+                ticks=False,
+                labelExpr="replace(datum.label, '\\\\n', '\\n')"  # 👈 key bit
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
