@@ -228,7 +228,6 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
 
     return metadata_map
     
-# ========== Public API ==========
 import pandas as pd
 from io import BytesIO
 from typing import Any, Dict, Optional
@@ -309,4 +308,5 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
     } for t in enriched])
 
     return df
+
 
