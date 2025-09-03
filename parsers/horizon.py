@@ -242,6 +242,8 @@ def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: in
         return dest or None
 
     return None
+# Already in your file:
+# DATE_RE, OPENING_TRIGGER_RE, DEADLINE_TRIGGER_RE, DEST_TRIGGER_RE, etc.
 
 # Topic code (same as in extract_metadata_blocks)
 TOPIC_CODE_RE = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
@@ -323,7 +325,6 @@ def _capture_interstitial_destination(lines: List[str], date_idx: int, *, max_sp
     if len(candidate) >= 15 and letters > max(1, 2 * digits) and "HORIZON-" not in candidate.upper():
         return candidate
     return None
-
 
 # =============================================================================
 # METADATA EXTRACTION (opening date, deadlines, destination) PER TOPIC
@@ -411,8 +412,6 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                 if key not in metadata_map:
                     metadata_map[key] = to_save
     return metadata_map
-
-
 
 # =============================================================================
 # DATE NORMALISATION (for ISO-only output columns)
