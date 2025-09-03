@@ -1,3 +1,234 @@
+# parsers/horizon.py
+from __future__ import annotations
+import re
+from io import BytesIO
+from typing import Dict, Any, List
+import fitz  # PyMuPDF
+import pandas as pd
+
+# ========== PDF Parsing ==========
+def extract_text_from_pdf(file_like: BytesIO) -> str:
+    # file_like should be positioned at start
+    with fitz.open(stream=file_like.read(), filetype="pdf") as doc:
+        return "\n".join(page.get_text() for page in doc)
+
+# ========== Utility ==========
+def normalize_text(text: str) -> str:
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    text = re.sub(r"\xa0", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n+", "\n", text)
+    return text.strip()
+
+# ========== Topic Extraction ==========
+def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    fixed_lines = []
+    i = 0
+    while i < len(lines):
+        if re.match(r"^HORIZON-[A-Z0-9\-]+:?$", lines[i]) and i + 1 < len(lines):
+            fixed_lines.append(f"{lines[i]} {lines[i + 1]}")
+            i += 2
+        else:
+            fixed_lines.append(lines[i])
+            i += 1
+
+    topic_pattern = r"^(HORIZON-[A-Za-z0-9\-]+):\s*(.*)$"
+    candidate_topics = []
+    for i, line in enumerate(fixed_lines):
+        match = re.match(topic_pattern, line)
+        if match:
+            lookahead_text = "\n".join(fixed_lines[i+1:i+20]).lower()
+            if any(key in lookahead_text for key in ["call:", "type of action"]):
+                candidate_topics.append({
+                    "code": match.group(1),
+                    "title": match.group(2).strip(),
+                    "start_line": i
+                })
+
+    topic_blocks = []
+    for idx, topic in enumerate(candidate_topics):
+        start = topic["start_line"]
+        end = candidate_topics[idx + 1]["start_line"] if idx + 1 < len(candidate_topics) else len(fixed_lines)
+        for j in range(start + 1, end):
+            if fixed_lines[j].lower().startswith("this destination"):
+                end = j
+                break
+        topic_blocks.append({
+            "code": topic["code"],
+            "title": topic["title"],
+            "full_text": "\n".join(fixed_lines[start:end]).strip()
+        })
+
+    return topic_blocks
+
+# ========== Field Extraction ==========
+def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
+    text = normalize_text(topic["full_text"])
+
+    def extract_budget(txt: str):
+        m = re.search(r"around\s+eur\s+([\d.,]+)", txt.lower())
+        if m:
+            return int(float(m.group(1).replace(",", "")) * 1_000_000)
+        m = re.search(r"between\s+eur\s+[\d.,]+\s+and\s+([\d.,]+)", txt.lower())
+        if m:
+            return int(float(m.group(1).replace(",", "")) * 1_000_000)
+        return None
+
+    def extract_total_budget(txt: str):
+        m = re.search(r"indicative budget.*?eur\s?([\d.,]+)", txt.lower())
+        return int(float(m.group(1).replace(",", "")) * 1_000_000) if m else None
+
+    def get_section(keyword: str, stop_keywords: List[str]):
+        lines = text.splitlines()
+        collecting = False
+        section = []
+        for line in lines:
+            l = line.lower()
+            if not collecting and keyword in l:
+                collecting = True
+                section.append(line.split(":", 1)[-1].strip())
+            elif collecting and any(l.startswith(k) for k in stop_keywords):
+                break
+            elif collecting:
+                section.append(line)
+        return "\n".join(section).strip() if section else None
+
+    def extract_type_of_action(txt: str):
+        lines = txt.splitlines()
+        for i, line in enumerate(lines):
+            if "type of action" in line.lower():
+                for j in range(i + 1, len(lines)):
+                    if lines[j].strip():
+                        return lines[j].strip()
+        return None
+
+    def extract_topic_title(txt: str):
+        lines = txt.strip().splitlines()
+        title_lines = []
+        found = False
+        for line in lines:
+            if not found:
+                m = re.match(r"^(HORIZON-[A-Za-z0-9-]+):\s*(.*)", line)
+                if m:
+                    found = True
+                    title_lines.append(m.group(2).strip())
+            else:
+                if re.match(r"^\s*Call[:\-]", line, re.IGNORECASE):
+                    break
+                elif line.strip():
+                    title_lines.append(line.strip())
+        return " ".join(title_lines) if title_lines else None
+
+    def extract_call_name_topic(txt: str):
+        txt = normalize_text(txt)
+        m = re.search(r"(?i)^\s*Call:\s*(.+)$", txt, re.MULTILINE)
+        if m:
+            return m.group(1).strip()
+        return None
+
+    return {
+        "title": extract_topic_title(text),
+        "budget_per_project": extract_budget(text),
+        "indicative_total_budget": extract_total_budget(text),
+        "type_of_action": extract_type_of_action(text),
+        "expected_outcome": get_section("expected outcome:", ["scope:", "objective:", "expected impact:", "eligibility:", "budget"]),
+        "scope": get_section("scope:", ["objective:", "expected outcome:", "expected impact:", "budget"]),
+        "call": extract_call_name_topic(text),
+        "trl": (m := re.search(r"TRL\s*(\d+)[^\d]*(\d+)?", text, re.IGNORECASE)) and (
+            f"{m.group(1)}-{m.group(2)}" if m.group(2) else m.group(1)
+        )
+    }
+
+import re
+from typing import Any, Dict
+
+# Helper: parse two-stage deadlines of the form
+# "Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)"
+DATE_TOKEN = r"\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}"
+TWO_STAGE_DEADLINES_RE = re.compile(
+    rf"deadline\(s\)\s*:\s*"
+    rf"({DATE_TOKEN})\s*\(([^)]+?)\)\s*,\s*"
+    rf"({DATE_TOKEN})\s*\(([^)]+?)\)",
+    re.IGNORECASE
+)
+
+def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
+    m = TWO_STAGE_DEADLINES_RE.search(line)
+    if not m:
+        return {}
+    # Only dates; ignore labels
+    return {
+        "deadline_stage1": m.group(1),
+        "deadline_stage2": m.group(3),
+    }
+
+def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
+    lines = normalize_text(text).splitlines()
+
+    metadata_map: Dict[str, Dict[str, Any]] = {}
+    current_metadata: Dict[str, Any] = {
+        "opening_date": None,
+        "deadline": None,          # single-stage (existing behaviour)
+        "deadline_stage1": None,   # only for two-stage topics
+        "deadline_stage2": None,   # only for two-stage topics
+        "destination": None,
+        "is_two_stage": False,     # NEW
+    }
+
+    # Case-insensitive: your codes can contain lowercase (e.g. ...-two-stage)
+    topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
+    collecting = False
+
+    for line in lines:
+        lower = line.lower()
+
+        if lower.startswith("opening:"):
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            current_metadata["opening_date"] = m.group(1) if m else None
+            # reset per-call metadata
+            current_metadata["deadline"] = None
+            current_metadata["deadline_stage1"] = None
+            current_metadata["deadline_stage2"] = None
+            current_metadata["destination"] = None
+            current_metadata["is_two_stage"] = False
+            collecting = True
+
+        elif collecting and lower.startswith("deadline"):
+            # KEEP: original single-date detection (unchanged)
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            current_metadata["deadline"] = m.group(1) if m else None
+
+            # Try parsing two-stage deadlines on the same line
+            extra = parse_two_stage_deadlines(line)
+            if extra:
+                current_metadata.update(extra)
+                # don't set the boolean yet; we’ll gate it per-topic code
+
+        elif collecting and lower.startswith("destination"):
+            current_metadata["destination"] = line.split(":", 1)[-1].strip()
+
+        elif collecting:
+            match = topic_pattern.match(line)
+            if match:
+                code = match.group(1)
+                to_save = current_metadata.copy()
+
+                # IMPORTANT: only attach two-stage metadata to two-stage topics
+                if "-two-stage" in code.lower():
+                    to_save["is_two_stage"] = bool(
+                        to_save.get("deadline_stage1") and to_save.get("deadline_stage2")
+                    )
+                else:
+                    to_save["is_two_stage"] = False
+                    to_save["deadline_stage1"] = None
+                    to_save["deadline_stage2"] = None
+
+                metadata_map[code] = to_save
+
+    return metadata_map
+
+# ========== Public API ==========
 import pandas as pd
 from io import BytesIO
 from typing import Any, Dict, Optional
@@ -78,3 +309,4 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
     } for t in enriched])
 
     return df
+
