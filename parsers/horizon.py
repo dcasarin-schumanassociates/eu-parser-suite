@@ -276,12 +276,7 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
 
-        "Opening Date": t.get("opening_date"),
-        "Deadline": t.get("deadline"),
-        "First Stage Deadline": t.get("deadline_stage1"),
-        "Second Stage Deadline": t.get("deadline_stage2"),
-
-        # ISO-normalised mirrors (safe for calendar/Gantt)
+       # ISO-normalised mirrors (safe for calendar/Gantt)
         "Opening Date (ISO)": _normalise_date_iso(t.get("opening_date")),
         "Deadline (ISO)": _normalise_date_iso(t.get("deadline")),
         "First Stage Deadline (ISO)": _normalise_date_iso(t.get("deadline_stage1")),
