@@ -115,7 +115,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         code = str(r.get("code") or "")
         title = str(r.get("title") or "")
         # Left-axis label (longer, wrapped):
-        y_label = wrap_label(f"{code}", width=50, max_lines=5)
+        y_label = wrap_label(f"{title}", width=100, max_lines=3)
 
         prog = r.get("programme")
         open_dt   = r.get("opening_date")
