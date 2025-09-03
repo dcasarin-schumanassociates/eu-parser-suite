@@ -1,4 +1,4 @@
-# app_b.py — Altair Gantt + Monthly Shading + Zoom
+# app_b.py — Altair Gantt with monthly shading, start/end labels, top axis, zoom
 from __future__ import annotations
 import io
 import pandas as pd
@@ -40,28 +40,29 @@ DISPLAY_COLS = [
 
 # ---------- Helpers ----------
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
-    # trim headers and map to canonical names
+    # Trim and map headers
     df.columns = [c.strip() for c in df.columns]
     for src, dst in COLUMN_MAP.items():
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
-    # normalise any remaining headers (lowercase)
+    # Normalise leftover headers
     df = df.rename(columns={c: c.strip().lower() for c in df.columns})
-    # programme default
+
+    # Programme default
     if "programme" not in df.columns:
         df["programme"] = "Horizon Europe"
 
-    # coerce dates (EU format)
+    # Dates (EU day-first)
     for c in ("opening_date","deadline","first_deadline","second_deadline"):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
 
-    # numeric
+    # Numerics
     for c in ("budget_per_project_eur","total_budget_eur","trl","num_projects"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # two_stage to bool-ish
+    # Two-stage to bool-like
     if "two_stage" in df.columns:
         df["two_stage"] = (
             df["two_stage"].astype(str).str.strip().str.lower()
@@ -97,20 +98,16 @@ def wrap_label(text: str, width=38, max_lines=3) -> str:
 
 def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
     """Create alternating month spans for background shading."""
-    # start at month start, end at the first day of month AFTER max_x
-    start = pd.Timestamp(min_x).to_period("M").to_timestamp()
-    end   = (pd.Timestamp(max_x).to_period("M") + 1).to_timestamp()
+    start = pd.Timestamp(min_x).to_period("M").start_time
+    end   = (pd.Timestamp(max_x).to_period("M") + 1).start_time
     months = pd.date_range(start, end, freq="MS")
-    bands = []
+    rows = []
     for i in range(len(months) - 1):
-        bands.append({
-            "start": months[i],
-            "end": months[i+1],
-            "band": i % 2  # 0/1 alternating
-        })
-    return pd.DataFrame(bands)
+        rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
+    return pd.DataFrame(rows)
 
 def build_altair_chart(df: pd.DataFrame, end_col: str):
+    # Sort key: earliest of any deadline
     g = df.copy()
     g["earliest_deadline"] = pd.to_datetime(
         pd.concat(
@@ -124,38 +121,31 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         errors="coerce",
     )
 
+    # Require opening + selected end date + title
     g = g.dropna(subset=["opening_date", end_col, "title"])
     if g.empty:
         return None
 
+    # Wrapped y-label: CODE — Title
     full_label = g["code"].fillna("").astype(str) + " — " + g["title"].astype(str)
     g = g.assign(y_label=[wrap_label(t, width=38, max_lines=3) for t in full_label])
 
+    # Sort earliest first (urgent on top)
     g = g.sort_values(["earliest_deadline", "opening_date"], ascending=[True, True])
     y_order = g["y_label"].tolist()
 
-    row_height = 34
-    chart_height = max(420, len(g) * row_height)
+    # Chart height proportional to rows
+    row_height = 42  # extra room for wrapped labels
+    chart_height = max(480, len(g) * row_height)
 
-    # ---- Calendar guides (fixed) ----
+    # Calendar domain and padding (zoomed out a bit)
     min_x = min(g["opening_date"].min(), g[end_col].min())
     max_x = max(g["opening_date"].max(), g[end_col].max())
-
-    # Pad initial domain to "zoom out" a bit
     pad_days = 30
     domain_min = pd.Timestamp(min_x) - pd.Timedelta(days=pad_days)
     domain_max = pd.Timestamp(max_x) + pd.Timedelta(days=pad_days)
 
-    # Monthly bands
-    def build_month_bands(min_ts, max_ts):
-        start = pd.Timestamp(min_ts).to_period("M").start_time
-        end   = (pd.Timestamp(max_ts).to_period("M") + 1).start_time
-        months = pd.date_range(start, end, freq="MS")
-        rows = []
-        for i in range(len(months) - 1):
-            rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
-        return pd.DataFrame(rows)
-
+    # Background monthly shading
     bands_df = build_month_bands(min_x, max_x)
     month_bands = (
         alt.Chart(bands_df)
@@ -172,8 +162,6 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
-
-    # ✅ Monday-aligned week start (no .floor("W-MON"))
     week_start = pd.Timestamp(min_x).to_period("W-MON").start_time
     week_end   = pd.Timestamp(max_x).to_period("W-MON").start_time
     weeks = pd.date_range(week_start, week_end, freq="W-MON")
@@ -189,16 +177,29 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         .encode(x="t:T")
     )
 
-    # ---- Bars ----
+    # Base encodings
     base = alt.Chart(g).encode(
-        y=alt.Y("y_label:N", sort=y_order, axis=alt.Axis(title=None, labelLimit=380)),
+        y=alt.Y(
+            "y_label:N",
+            sort=y_order,
+            axis=alt.Axis(title=None, labelLimit=1200, labelFontSize=12)  # bigger, don't drop labels
+        ),
         color=alt.Color("programme:N", legend=None),
     )
+
+    # Bars
     bars = base.mark_bar(cornerRadius=3).encode(
         x=alt.X(
             "opening_date:T",
-            axis=alt.Axis(title=None, format="%b %Y", tickCount="month"),
-            scale=alt.Scale(domain=[domain_min, domain_max])
+            axis=alt.Axis(
+                title=None,
+                format="%b %Y",
+                tickCount="month",
+                orient="top",            # << top axis, as requested
+                labelFontSize=12,
+                tickSize=6
+            ),
+            scale=alt.Scale(domain=[domain_min, domain_max]),
         ),
         x2=alt.X2(f"{end_col}:T"),
         tooltip=[
@@ -210,17 +211,32 @@ def build_altair_chart(df: pd.DataFrame, end_col: str):
         ],
     )
 
+    # Start & End date labels on bars (short format)
+    start_labels = base.mark_text(
+        align="right", dx=-4, dy=-8, fontSize=11, color="#111"
+    ).encode(
+        x="opening_date:T",
+        text=alt.Text("opening_date:T", format="%d %b"),
+    )
+
+    end_labels = base.mark_text(
+        align="left", dx=4, dy=-8, fontSize=11, color="#111"
+    ).encode(
+        x=f"{end_col}:T",
+        text=alt.Text(f"{end_col}:T", format="%d %b"),
+    )
+
+    # Zoom / pan on x
     zoom = alt.selection_interval(bind="scales", encodings=["x"])
 
     chart = (
-        (month_bands + week_grid + month_grid + bars)
+        (month_bands + week_grid + month_grid + bars + start_labels + end_labels)
         .add_params(zoom)
         .properties(height=chart_height)
         .configure_axis(grid=False)
         .configure_view(strokeWidth=0)
     )
     return chart
-
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer (Altair)", layout="wide")
@@ -249,7 +265,7 @@ types      = st.sidebar.multiselect("Type of Action", options=type_opts)
 trls       = st.sidebar.multiselect("TRL", options=trl_opts)
 dests      = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
 
-# Dates: consider any deadline for overall bounds
+# Dates: compute overall bounds from any deadline
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
 dead_all = pd.concat([
     pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -300,13 +316,13 @@ if trls:
     f = f[trl_str.isin(trls)]
 if dests:      f = f[f["destination_or_strand"].isin(dests)]
 
-# date filters
+# Date filters
 f = f[(f["opening_date"] >= pd.to_datetime(open_start)) & (f["opening_date"] <= pd.to_datetime(open_end))]
 if end_col in f.columns:
     f = f[(pd.to_datetime(f[end_col], errors="coerce") >= pd.to_datetime(dead_start)) &
           (pd.to_datetime(f[end_col], errors="coerce") <= pd.to_datetime(dead_end))]
 
-# budget filter
+# Budget filter
 f = f[(f["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
       (f["budget_per_project_eur"].fillna(0) <= budget_range[1])]
 
