@@ -209,6 +209,39 @@ def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
         "deadline_stage2": m.group(3),
     }
 
+# Accept "Destination", "Destination 1", "Destination 2", ... (case-insensitive)
+DEST_LINE_RE = re.compile(r"^\s*destination(?:\s*\d+)?\s*:\s*(.*)$", re.IGNORECASE)
+
+SECTION_START_RE = re.compile(
+    r"^\s*(opening(?:\s*date)?\s*:|deadline|destination\s*:|destination\s*\d+\s*:|horizon-[a-z0-9\-]+:)",
+    re.IGNORECASE
+)
+
+def _scan_forward_destination(lines: List[str], start_idx: int, *, max_ahead: int = 8) -> str | None:
+    """
+    Starting from start_idx, scan forward up to max_ahead lines to find a Destination line.
+    If found, return the destination text; also capture a single wrapped continuation line
+    if it does not start a new section/topic.
+    """
+    for k in range(start_idx, min(start_idx + max_ahead, len(lines))):
+        line = lines[k].strip()
+        m = DEST_LINE_RE.match(line)
+        if not m:
+            continue
+
+        dest = m.group(1).strip()
+
+        # Attempt to capture 1 continuation line if it's a soft wrap (common in PDFs)
+        nxt_idx = k + 1
+        if nxt_idx < len(lines):
+            nxt = lines[nxt_idx].strip()
+            # stop if next line starts a new section/topic or is empty
+            if nxt and not SECTION_START_RE.match(nxt):
+                dest = (dest + " " + nxt).strip()
+
+        return dest or None
+
+    return None
 
 # =============================================================================
 # METADATA EXTRACTION (opening date, deadlines, destination) PER TOPIC
