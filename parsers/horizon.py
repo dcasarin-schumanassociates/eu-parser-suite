@@ -233,7 +233,6 @@ from io import BytesIO
 from typing import Any, Dict, Optional
 from datetime import datetime
 
-# Small helper: normalise "23 Sep 2025", "23 September 2025", "23 Sept. 2025" → "2025-09-23"
 def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
     if not d:
         return None
@@ -249,14 +248,13 @@ def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
             return datetime.strptime(s, fmt).date().isoformat()
         except ValueError:
             pass
-    return None  # keep strict; avoids silent misparses
+    return None
 
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
     Orchestrates your working pipeline and returns a DataFrame that matches your current app's output.
-    No Streamlit here; just pure parsing.
+    Produces only ISO-formatted date columns.
     """
-    # Read bytes once, then work with a new BytesIO so downstream .read() works
     pdf_bytes = file_like.read()
     raw_text = extract_text_from_pdf(BytesIO(pdf_bytes))
 
@@ -276,13 +274,13 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
 
-       # ISO-normalised mirrors (safe for calendar/Gantt)
-        "Opening Date (ISO)": _normalise_date_iso(t.get("opening_date")),
-        "Deadline (ISO)": _normalise_date_iso(t.get("deadline")),
-        "First Stage Deadline (ISO)": _normalise_date_iso(t.get("deadline_stage1")),
-        "Second Stage Deadline (ISO)": _normalise_date_iso(t.get("deadline_stage2")),
+        # ISO-only date fields
+        "Opening Date": _normalise_date_iso(t.get("opening_date")),
+        "Deadline": _normalise_date_iso(t.get("deadline")),
+        "First Stage Deadline": _normalise_date_iso(t.get("deadline_stage1")),
+        "Second Stage Deadline": _normalise_date_iso(t.get("deadline_stage2")),
 
-        # Boolean flag for branching in visualisations/logic
+        # Boolean flag
         "Two-Stage": bool(t.get("is_two_stage")),
 
         "Destination": t.get("destination"),
@@ -296,7 +294,7 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
-        # provenance (optional)
+
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
