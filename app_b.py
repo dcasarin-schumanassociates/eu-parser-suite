@@ -69,26 +69,33 @@ def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
     return lo, hi
 
 def build_frappe_tasks(df: pd.DataFrame) -> list[dict]:
+    """Convert rows to Frappe Gantt tasks."""
+    def safe_val(val):
+        if pd.isna(val):
+            return ""
+        return str(val)
+
     tasks = []
-    for i, r in df.dropna(subset=["opening_date","deadline"]).iterrows():
+    for i, r in df.dropna(subset=["opening_date", "deadline"]).iterrows():
         tasks.append({
             "id": str(r.get("code") or f"row-{i}"),
-            "name": f"{(r.get('code') or '')} — {(r.get('title') or '')}",
+            "name": f"{safe_val(r.get('code'))} — {safe_val(r.get('title'))}",
             "start": r["opening_date"].date().isoformat(),
             "end": r["deadline"].date().isoformat(),
             "progress": 100,
-            "custom_class": (r.get("programme") or "default").replace(" ", "-").lower(),
+            "custom_class": safe_val(r.get("programme")).replace(" ", "-").lower(),
             "details": {
-                "Title": r.get("title") or "",
-                "Type": r.get("type_of_action") or "",
+                "Title": safe_val(r.get("title")),
+                "Type": safe_val(r.get("type_of_action")),
                 "Budget (€)": f"{int(r.get('budget_per_project_eur') or 0):,}",
                 "Open": r["opening_date"].strftime("%d %b %Y") if pd.notna(r["opening_date"]) else "",
                 "Close": r["deadline"].strftime("%d %b %Y") if pd.notna(r["deadline"]) else "",
-                "Cluster/Strand": r.get("cluster") or r.get("destination_or_strand") or "",
-                "Version": r.get("version_label") or "",
+                "Cluster/Strand": safe_val(r.get("cluster")) or safe_val(r.get("destination_or_strand")),
+                "Version": safe_val(r.get("version_label")),
             }
         })
     return tasks
+
 
 def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: int = 600):
     # CDN HTML block. We pass `tasks` JSON and build chart client-side.
