@@ -157,12 +157,10 @@ def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
     m = TWO_STAGE_DEADLINES_RE.search(line)
     if not m:
         return {}
-    # Groups: 1=date1, 2=label1, 3=date2, 4=label2
+    # Only the dates are returned; labels are ignored on purpose
     return {
         "deadline_stage1": m.group(1),
-        "deadline_stage1_label": m.group(2).strip(),
         "deadline_stage2": m.group(3),
-        "deadline_stage2_label": m.group(4).strip(),
     }
 
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
@@ -171,28 +169,27 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     metadata_map: Dict[str, Dict[str, Any]] = {}
     current_metadata: Dict[str, Any] = {
         "opening_date": None,
-        "deadline": None,              # KEEP: single-stage
-        "deadline_stage1": None,       # NEW: first-stage
-        "deadline_stage1_label": None, # NEW: label
-        "deadline_stage2": None,       # NEW: second-stage
-        "deadline_stage2_label": None, # NEW: label
+        "deadline": None,          # single-stage (existing behaviour)
+        "deadline_stage1": None,   # NEW: first-stage date
+        "deadline_stage2": None,   # NEW: second-stage date
         "destination": None
     }
 
-    topic_pattern = re.compile(r"^(HORIZON-[A-Za-z0-9\-]+):")
+    # Make topic detection case-insensitive so codes like ...-two-stage match
+    topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
     collecting = False
+
     for line in lines:
         lower = line.lower()
 
         if lower.startswith("opening:"):
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["opening_date"] = m.group(1) if m else None
-            # Reset deadlines when a new Opening section begins
+            # reset per-call metadata
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
-            current_metadata["deadline_stage1_label"] = None
             current_metadata["deadline_stage2"] = None
-            current_metadata["deadline_stage2_label"] = None
+            current_metadata["destination"] = None
             collecting = True
 
         elif collecting and lower.startswith("deadline"):
@@ -200,7 +197,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["deadline"] = m.group(1) if m else None
 
-            # NEW: additionally try to parse two-stage deadlines on the same line
+            # Try parsing two-stage deadlines on the same line
             extra = parse_two_stage_deadlines(line)
             if extra:
                 current_metadata.update(extra)
@@ -212,7 +209,14 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             match = topic_pattern.match(line)
             if match:
                 code = match.group(1)
-                metadata_map[code] = current_metadata.copy()
+                to_save = current_metadata.copy()
+
+                # IMPORTANT: only attach two-stage dates to two-stage topics
+                if "-two-stage" not in code.lower():
+                    to_save["deadline_stage1"] = None
+                    to_save["deadline_stage2"] = None
+
+                metadata_map[code] = to_save
 
     return metadata_map
 
@@ -246,14 +250,11 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
         "Opening Date": t.get("opening_date"),
-        # KEEP: single-stage deadline column as-is
+        # Existing single-stage deadline
         "Deadline": t.get("deadline"),
-        # NEW: additional columns for two-stage deadlines (populated only when present)
+        # New: populated only for two-stage topics
         "First Stage Deadline": t.get("deadline_stage1"),
         "Second Stage Deadline": t.get("deadline_stage2"),
-        # Optional (keep if you want the labels visible; otherwise remove these two lines)
-        "First Stage Label": t.get("deadline_stage1_label"),
-        "Second Stage Label": t.get("deadline_stage2_label"),
 
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
