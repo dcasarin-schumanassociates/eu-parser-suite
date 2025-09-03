@@ -140,94 +140,43 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
         )
     }
 
-from typing import Any, Dict
-
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
 
     metadata_map: Dict[str, Dict[str, Any]] = {}
     current_metadata = {
         "opening_date": None,
-        "deadline1": None,   # first or only deadline
-        "deadline2": None,   # second-stage deadline (if any)
+        "deadline": None,
         "destination": None
     }
 
-    # Keep the original topic regex
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
-
-    # Keep the original single-date regex for matching dd Month yyyy
-    date_re = re.compile(r"(\d{1,2} \w+ \d{4})")
-
     collecting = False
-    current_code = None
-
     for line in lines:
         lower = line.lower()
 
-        # Detect topic headers and flush previous block (if any)
-        topic_match = topic_pattern.match(line)
-        if topic_match:
-            if collecting and current_code:
-                metadata_map[current_code] = {
-                    "opening_date": current_metadata["opening_date"],
-                    "deadline1": current_metadata["deadline1"],
-                    "deadline2": current_metadata["deadline2"],
-                    "destination": current_metadata["destination"],
-                }
-                # reset for next block
-                current_metadata["opening_date"] = None
-                current_metadata["deadline1"] = None
-                current_metadata["deadline2"] = None
-                current_metadata["destination"] = None
-
-            current_code = topic_match.group(1)
-            collecting = True
-            continue
-
-        if not collecting:
-            continue
-
         if lower.startswith("opening:"):
-            m = date_re.search(line)  # single match is fine here
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["opening_date"] = m.group(1) if m else None
-            # when a new opening is encountered, reset deadlines for safety
-            current_metadata["deadline1"] = None
-            current_metadata["deadline2"] = None
+            current_metadata["deadline"] = None
+            collecting = True
 
-        elif lower.startswith("deadline"):
-            # RULE:
-            # - If two dates in a row AND "stage" mentioned -> deadline1 = first, deadline2 = second
-            # - Else (one date) -> deadline1 = that date, deadline2 = None
-            dates = date_re.findall(line)
-            mentions_stage = ("stage" in lower)  # catches "stage" / "stages"
-            if mentions_stage and len(dates) >= 2:
-                current_metadata["deadline1"] = dates[0]
-                current_metadata["deadline2"] = dates[1]
-            elif len(dates) >= 1:
-                current_metadata["deadline1"] = dates[0]
-                current_metadata["deadline2"] = None
-            # If there are 3+ dates we still take the first two as the simplest interpretation.
+        elif collecting and lower.startswith("deadline"):
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            current_metadata["deadline"] = m.group(1) if m else None
 
-        elif lower.startswith("destination"):
+        elif collecting and lower.startswith("destination"):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
 
-    # Flush the last block if we ended while collecting
-    if collecting and current_code:
-        metadata_map[current_code] = {
-            "opening_date": current_metadata["opening_date"],
-            "deadline1": current_metadata["deadline1"],
-            "deadline2": current_metadata["deadline2"],
-            "destination": current_metadata["destination"],
-        }
+        elif collecting:
+            match = topic_pattern.match(line)
+            if match:
+                code = match.group(1)
+                metadata_map[code] = current_metadata.copy()
 
     return metadata_map
 
 # ========== Public API ==========
-import pandas as pd
-from io import BytesIO
-from typing import Any, Dict
-
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
     Orchestrates your working pipeline and returns a DataFrame that matches your current app's output.
@@ -253,9 +202,7 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Code": t["code"],
         "Title": t["title"],
         "Opening Date": t.get("opening_date"),
-        # New columns per your rule:
-        "Deadline 1": t.get("deadline1"),  # only deadline, or first-stage deadline
-        "Deadline 2": t.get("deadline2"),  # second-stage deadline if exists
+        "Deadline": t.get("deadline"),
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
@@ -267,7 +214,7 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
-        # provenance
+        # provenance (optional; blank for now – add if you like)
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
