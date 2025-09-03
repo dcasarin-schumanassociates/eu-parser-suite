@@ -562,19 +562,12 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
     df = pd.DataFrame([{
         "Code": t["code"],
         "Title": t["title"],
-
-        # ISO-only date fields
         "Opening Date": _normalise_date_iso(t.get("opening_date")),
         "Deadline": _normalise_date_iso(t.get("deadline")),
         "First Stage Deadline": _normalise_date_iso(t.get("deadline_stage1")),
         "Second Stage Deadline": _normalise_date_iso(t.get("deadline_stage2")),
-
-        # Boolean flag for single/two-stage logic in downstream visuals
         "Two-Stage": bool(t.get("is_two_stage")),
-
-        # Cluster detected from the document header
-        "Cluster": cluster,
-
+        "Cluster": cluster,  # already here per-row
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
         "Total Budget": t.get("indicative_total_budget"),
@@ -586,11 +579,12 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
-
-        # provenance
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
     } for t in enriched])
-
+    
+    # ▶ Ensure Cluster column always exists (even if no topics were detected)
+    df["Cluster"] = cluster
     return df
+
