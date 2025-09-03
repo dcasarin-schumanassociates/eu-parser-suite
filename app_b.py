@@ -283,6 +283,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     return chart
 
 
+
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
 st.title("Calls Explorer — Gantt (two-stage + bands by Type of Action)")
