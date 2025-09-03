@@ -180,5 +180,149 @@ def build_echarts_option(df: pd.DataFrame, end_col: str, view_start, view_end):
       var yIdx = api.coord([api.value(1), cat])[1];
       var startCoord = api.coord([start, cat]);
       var endCoord   = api.coord([end, cat]);
-      va
+      var barHeight = Math.max(18, api.size([0, 1])[1] * 0.6);
+      var y = startCoord[1] - barHeight / 2;
 
+      var rect = {
+        type: 'rect',
+        shape: {
+          x: startCoord[0],
+          y: y,
+          width: endCoord[0] - startCoord[0],
+          height: barHeight
+        },
+        style: api.style({fill: api.visual('color')})
+      };
+      return rect;
+    }
+    """
+
+    # scatter series for start/end date labels (short format)
+    start_labels = [{"name": d["name"],
+                     "value": [d["value"][0], d["value"][1]],
+                     "open_str": d["open_str"]} for d in data]
+    end_labels   = [{"name": d["name"],
+                     "value": [d["value"][0], d["value"][2]],
+                     "close_str": d["close_str"]} for d in data]
+
+    option = {
+        "animation": False,
+        "grid": {"left": 10, "right": 10, "top": 40, "bottom": 60, "containLabel": True},
+        "xAxis": {
+            "type": "time",
+            "position": "top",
+            "min": x_min,
+            "max": x_max,
+            "axisLabel": {"fontSize": 12, "formatter": "{MMM} {yyyy}"},
+            "axisLine": {"lineStyle": {"color": "#9AA0A6", "width": 1.2}},
+            "splitLine": {"show": True, "lineStyle": {"color": "#E5E7EB"}},
+        },
+        "yAxis": {
+            "type": "category",
+            "inverse": True,
+            "data": y_labels,
+            "axisLabel": {"fontSize": 12, "lineHeight": 16},
+        },
+        "tooltip": {
+            "trigger": "item",
+            "confine": True,
+            "formatter": """
+            function(p) {
+              var d = p.data || {};
+              if (d.title) {
+                return '<b>' + (d.name ? d.name + ' — ' : '') + d.title + '</b><br/>' +
+                       '<b>Type:</b> ' + (d.type_of_action || '') + '<br/>' +
+                       '<b>Budget (€):</b> ' + (d.budget ? d.budget.toLocaleString() : '') + '<br/>' +
+                       '<b>Open → Close:</b> ' + (d.open_str || '') + ' → ' + (d.close_str || '');
+              }
+              // labels series
+              if (d.open_str) return d.open_str;
+              if (d.close_str) return d.close_str;
+              return '';
+            }
+            """
+        },
+        "dataZoom": [
+            {"type": "slider", "xAxisIndex": 0, "bottom": 20},
+            {"type": "inside", "xAxisIndex": 0},
+        ],
+        "color": ["#3b82f6", "#22c55e", "#f59e0b", "#64748b", "#8b5cf6"],
+        "series": [
+            # Transparent series just to host alternating month bands
+            {
+                "type": "line",
+                "data": [],
+                "markArea": {
+                    "itemStyle": {"color": "rgba(0,0,0,0.06)"},
+                    "data": mark_areas
+                }
+            },
+            # Main custom Gantt bars
+            {
+                "type": "custom",
+                "name": "Calls",
+                "renderItem": render_item,
+                "encode": {"x": [1,2], "y": 0},
+                "data": data,
+                "itemStyle": {"opacity": 1.0},
+                # colour by programme (optional): use visualMap/callback if needed
+            },
+            # Start date labels (left)
+            {
+                "type": "scatter",
+                "symbolSize": 1,
+                "data": start_labels,
+                "label": {
+                    "show": True, "position": "left", "distance": 4,
+                    "formatter": "{@[2]||open_str}",  # workaround replaced below via formatter func
+                    "fontSize": 11, "color": "#111"
+                },
+                "encode": {"x": 1, "y": 0},
+                "tooltip": {"show": False},
+            },
+            # End date labels (right)
+            {
+                "type": "scatter",
+                "symbolSize": 1,
+                "data": end_labels,
+                "label": {
+                    "show": True, "position": "right", "distance": 4,
+                    "formatter": "{@[2]||close_str}",
+                    "fontSize": 11, "color": "#111"
+                },
+                "encode": {"x": 1, "y": 0},
+                "tooltip": {"show": False},
+            },
+        ]
+    }
+
+    # Fix label formatter to use data fields (open_str/close_str)
+    option["series"][2]["label"]["formatter"] = """
+      function(p){ return (p.data && p.data.open_str) ? p.data.open_str.replace(/\\b(\\w{3})\\b/g,'$1') : ''; }
+    """
+    option["series"][3]["label"]["formatter"] = """
+      function(p){ return (p.data && p.data.close_str) ? p.data.close_str.replace(/\\b(\\w{3})\\b/g,'$1') : ''; }
+    """
+
+    return option, height_px
+
+# ---------- UI ----------
+st.set_page_config(page_title="Calls Explorer (ECharts)", layout="wide")
+st.title("Calls Explorer (ECharts Gantt + Filters)")
+
+upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
+if not upl:
+    st.stop()
+
+xls = pd.ExcelFile(upl)
+sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
+raw = pd.read_excel(xls, sheet_name=sheet)
+df = canonicalise(raw)
+
+# Sidebar filters
+st.sidebar.header("Filters")
+prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
+cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
+type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
+trl_opts     = sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
+dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropn]()_
