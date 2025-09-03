@@ -159,53 +159,25 @@ def extract_topic_blocks(text: str) -> List[Dict[str, Any]]:
             fixed_lines.append(lines[i])
             i += 1
 
-    topic_re = re.compile(r"^(HORIZON-[A-Za-z0-9\-]+):\s*(.*)$")
-
-    def _prev_nonempty(idx: int) -> str:
-        for j in range(idx - 1, -1, -1):
-            if fixed_lines[j].strip():
-                return fixed_lines[j].strip()
-        return ""
-
-    def _looks_like_boundary(s: str) -> bool:
-        s_low = s.lower()
-        if not s:                              # blank above
-            return True
-        if any(k in s_low for k in [
-            "proposals are invited", "topics", "type of action",
-            "destination", "overview of this call", "opening", "deadline"
-        ]):
-            return True
-        # Table header fragments often split across lines in PDFs
-        if re.search(r"(budgets|expected\s+eu\s+contribution|indicative\s+number)", s_low):
-            return True
-        # Avoid mid-sentence: previous line ending with a letter/number (likely prose)
-        if re.search(r"[A-Za-z0-9]\.?$", s):
-            return False
-        return False
-
-    def _has_struct_markers(lookahead_block: str) -> bool:
-        la = lookahead_block.lower()
-        return any(kw in la for kw in [
-            "call:", "type of action", "expected outcome:", "scope:"
-        ])
-
+    topic_pattern = r"^(HORIZON-[A-Za-z0-9\-]+):\s*(.*)$"
     candidate_topics = []
-    for idx, line in enumerate(fixed_lines):
-        m = topic_re.match(line)
-        if not m:
-            continue
+    for i, line in enumerate(fixed_lines):
+        match = re.match(topic_pattern, line)
+        if match:
+            # Heuristic: only consider as topic if the next lines contain key markers
+            lookahead_text = "\n".join(fixed_lines[i + 1:i + 20]).lower()
+            if any(key in lookahead_text for key in ["call:", "type of action"]):
+                candidate_topics.append({
+                    "code": match.group(1),
+                    "title": match.group(2).strip(),
+                    "start_line": i
+                })
 
-        # Guard 1: the line above should look like a boundary, not prose
-        prev_line = _prev_nonempty(idx)
-        if not _looks_like_boundary(prev_line):
-            continue
-
-    # Slice text blocks between accepted topic headers; stop early at "This destination"
+    # Slice text blocks between topic headers, stopping early at "This destination"
     topic_blocks = []
-    for i, topic in enumerate(candidate_topics):
+    for idx, topic in enumerate(candidate_topics):
         start = topic["start_line"]
-        end = candidate_topics[i + 1]["start_line"] if i + 1 < len(candidate_topics) else len(fixed_lines)
+        end = candidate_topics[idx + 1]["start_line"] if idx + 1 < len(candidate_topics) else len(fixed_lines)
         for j in range(start + 1, end):
             if fixed_lines[j].lower().startswith("this destination"):
                 end = j
