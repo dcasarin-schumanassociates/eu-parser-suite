@@ -239,29 +239,51 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         next2 = lines[idx + 2].strip() if idx + 2 < len(lines) else ""
         line_plus_next = f"{line} {next1}".strip()
 
+        # --- Opening ---
         if OPENING_TRIGGER_RE.match(line):
             opening_date = _find_first_date_in([line, next1, next2])
             current_metadata["opening_date"] = opening_date
+
+            # reset per-call metadata
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
             current_metadata["destination"] = None
             current_metadata["is_two_stage"] = False
             collecting = True
+
+            # NEW: try to capture a Destination near the Opening block
+            if current_metadata["destination"] is None:
+                maybe_dest = _scan_forward_destination(lines, idx + 1)
+                if maybe_dest:
+                    current_metadata["destination"] = maybe_dest
             continue
 
+        # --- Deadline(s) ---
         if collecting and DEADLINE_TRIGGER_RE.match(line):
+            # original single-date detection with next-line fallback
             deadline = _find_first_date_in([line, next1])
             current_metadata["deadline"] = deadline
+
+            # two-stage parse (line + next)
             extra = parse_two_stage_deadlines(line_plus_next)
             if extra:
                 current_metadata.update(extra)
+
+            # NEW: if we still don't have a destination, scan forward now too
+            if current_metadata["destination"] is None:
+                maybe_dest = _scan_forward_destination(lines, idx + 1)
+                if maybe_dest:
+                    current_metadata["destination"] = maybe_dest
             continue
 
+        # --- Destination (direct match, original behaviour) ---
         if collecting and DEST_TRIGGER_RE.match(line):
+            # if explicitly present on this very line, keep your original rule
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
             continue
 
+        # --- Topic boundary: attach snapshot to this code (first-write-wins) ---
         if collecting:
             match = topic_pattern.match(line)
             if match:
@@ -278,12 +300,12 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                     to_save["deadline_stage1"] = None
                     to_save["deadline_stage2"] = None
 
-                # >>> FIRST-WRITE-WINS + normalised key <<<
                 key = code.upper()
-                if key not in metadata_map:
+                if key not in metadata_map:  # first-write-wins
                     metadata_map[key] = to_save
 
     return metadata_map
+
 
 # =============================================================================
 # DATE NORMALISATION (for ISO-only output columns)
