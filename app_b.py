@@ -115,8 +115,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         code = str(r.get("code") or "")
         title = str(r.get("title") or "")
         # Left-axis label (longer, wrapped):
-        y_label = wrap_label(f"{title}", width=100, max_lines=3)
-
+        y_label = wrap_label(f"{title}", width=100, max_lines=2)
         prog = r.get("programme")
         open_dt   = r.get("opening_date")
         final_dt  = r.get("deadline")
@@ -233,11 +232,12 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             axis=alt.Axis(
                 title=None,
                 labelLimit=8000,
-                labelFontSize=16,
+                labelFontSize=13,
                 labelAlign="right",
                 labelPadding=4,
                 domain=True,          # <--- force draw vertical line
                 ticks=False           # optional, removes little tick marks
+                labelExpr="replace(datum.label, '\\\\n', '\\n')"
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
