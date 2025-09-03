@@ -172,6 +172,20 @@ def extract_data_fields(topic: Dict[str, Any]) -> Dict[str, Any]:
 # =============================================================================
 # DEADLINE PARSING HELPERS (two-stage; keeps original single-date detection elsewhere)
 # =============================================================================
+
+DATE_RE = re.compile(r"\b\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}\b")  # 23 Sep 2025 / 23 Sept. 2025 / 23 September 2025
+OPENING_TRIGGER_RE  = re.compile(r"^\s*opening(?:\s*date)?\s*:\s*", re.IGNORECASE)
+DEADLINE_TRIGGER_RE = re.compile(r"^\s*deadline", re.IGNORECASE)
+DEST_TRIGGER_RE     = re.compile(r"^\s*destination\s*:", re.IGNORECASE)
+
+def _find_first_date_in(lines: List[str]) -> str | None:
+    """Return first date string found across a list of lines, else None."""
+    for ln in lines:
+        m = DATE_RE.search(ln)
+        if m:
+            return m.group(0)
+    return None
+
 # Example: "Deadline(s): 23 Sep 2025 (First Stage), 14 Apr 2026 (Second Stage)"
 DATE_TOKEN = r"\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}"
 TWO_STAGE_DEADLINES_RE = re.compile(
@@ -216,45 +230,56 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         "is_two_stage": False,     # boolean flag
     }
 
+    # Case-insensitive topic code; allow lowercase in codes
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
     collecting = False
 
     for idx, raw in enumerate(lines):
         line = raw.strip()
-        lower = line.lower()
+        next1 = lines[idx + 1].strip() if idx + 1 < len(lines) else ""
+        next2 = lines[idx + 2].strip() if idx + 2 < len(lines) else ""
+        line_plus_next = f"{line} {next1}".strip()
 
-        next_raw = lines[idx + 1] if idx + 1 < len(lines) else ""
-        next_line = next_raw.strip()
-        line_plus_next = f"{line} {next_line}".strip()
+        # --- Opening ---
+        if OPENING_TRIGGER_RE.match(line):
+            # Try same line after the colon, then look ahead up to two lines
+            opening_date = _find_first_date_in([line, next1, next2])
+            current_metadata["opening_date"] = opening_date
 
-        if lower.startswith("opening:"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line) or re.search(r"(\d{1,2} \w+ \d{4})", next_line)
-            current_metadata["opening_date"] = m.group(1) if m else None
+            # Reset per-call metadata on a new Opening section
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
             current_metadata["destination"] = None
             current_metadata["is_two_stage"] = False
             collecting = True
+            continue
 
-        elif collecting and lower.startswith("deadline"):
-            # original single-date detection (unchanged), with next-line fallback
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line) or re.search(r"(\d{1,2} \w+ \d{4})", next_line)
-            current_metadata["deadline"] = m.group(1) if m else None
+        # --- Deadline(s) ---
+        if collecting and DEADLINE_TRIGGER_RE.match(line):
+            # KEEP: original behaviour (first date), but with next-line fallback
+            deadline = _find_first_date_in([line, next1])
+            current_metadata["deadline"] = deadline
 
-            # two-stage (if present on wrapped line)
+            # Two-stage parse (handle wrapping by parsing line + next)
             extra = parse_two_stage_deadlines(line_plus_next)
             if extra:
                 current_metadata.update(extra)
+            continue
 
-        elif collecting and lower.startswith("destination"):
+        # --- Destination ---
+        if collecting and DEST_TRIGGER_RE.match(line):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
+            continue
 
-        elif collecting:
+        # --- Topic boundary: attach snapshot to this code ---
+        if collecting:
             match = topic_pattern.match(line)
             if match:
                 code = match.group(1)
                 to_save = current_metadata.copy()
+
+                # Only attach two-stage data to '-two-stage' topics
                 if "-two-stage" in code.lower():
                     to_save["is_two_stage"] = bool(
                         to_save.get("deadline_stage1") and to_save.get("deadline_stage2")
@@ -263,11 +288,11 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                     to_save["is_two_stage"] = False
                     to_save["deadline_stage1"] = None
                     to_save["deadline_stage2"] = None
-                metadata_map[code] = to_save
+
+                # KEY: normalise the key to a consistent case to avoid join misses
+                metadata_map[code.upper()] = to_save
 
     return metadata_map
-
-
 
 # =============================================================================
 # DATE NORMALISATION (for ISO-only output columns)
@@ -315,7 +340,7 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         {
             **topic,
             **extract_data_fields(topic),
-            **metadata_by_code.get(topic["code"], {})
+            **metadata_by_code.get(topic["code"].upper(), {})  # <— normalised join key
         }
         for topic in topic_blocks
     ]
