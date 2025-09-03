@@ -125,7 +125,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         two_stage = bool(r.get("two_stage"))
 
         # A short, 2-line label for in-bar annotation (title only)
-        title_inbar = wrap_label(title, width=50, max_lines=3)
+        title_inbar = wrap_label(title, width=100, max_lines=3)
 
         if two_stage:
             # Segment A: Opening -> First
@@ -278,9 +278,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
     
     inbar = base.mark_text(
-        align="center",
+        align="left",
         baseline="middle",
-        fontSize=10,
+        fontSize=16,
         fill="white",             # white font
         stroke=None               # remove outline (or set stroke="black" if you want a thin outline)
     ).encode(
