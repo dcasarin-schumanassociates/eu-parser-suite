@@ -1,5 +1,6 @@
 streamlit>=1.32
 pandas>=2.0
 openpyxl>=3.1
-altair>=5.0
 python-dateutil>=2.8
+altair>=5.0          # keep if you want the Altair version, safe to include
+streamlit-echarts>=0.4.0
