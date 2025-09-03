@@ -4,6 +4,7 @@ import io
 import pandas as pd
 import streamlit as st
 from dateutil import tz
+import streamlit_frappe_gantt
 
 # Frappe Gantt component
 try:
