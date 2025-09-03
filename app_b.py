@@ -69,10 +69,10 @@ def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
         df["two_stage"] = False
     return df
 
-def wrap_label(text: str, width=100, max_lines=2) -> str:
+def wrap_label(text: str, width=36, max_lines=3) -> str:
     s = str(text or "")
     parts = [s[i:i+width] for i in range(0, len(s), width)]
-    return "\\n".join(parts[:max_lines])   # note the double backslash
+    return "\n".join(parts[:max_lines])
 
 def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
     s = pd.to_datetime(series, errors="coerce").dropna()
@@ -115,7 +115,8 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         code = str(r.get("code") or "")
         title = str(r.get("title") or "")
         # Left-axis label (longer, wrapped):
-        y_label = wrap_label(f"{title}", width=100, max_lines=2)
+        y_label = wrap_label(f"{code} — {title}", width=36, max_lines=3)
+
         prog = r.get("programme")
         open_dt   = r.get("opening_date")
         final_dt  = r.get("deadline")
@@ -124,7 +125,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         two_stage = bool(r.get("two_stage"))
 
         # A short, 2-line label for in-bar annotation (title only)
-        title_inbar = wrap_label(title, width=100, max_lines=3)
+        title_inbar = wrap_label(title, width=26, max_lines=3)
 
         if two_stage:
             # Segment A: Opening -> First
@@ -178,21 +179,21 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     if seg.empty:
         return None
 
-    # ---- Stable order & size
+    # Stable y order and sizes
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 10
-    chart_height = max(1080, unique_rows * row_height)
+    row_height = 50  # larger for wrapped labels
+    chart_height = max(560, unique_rows * row_height)
 
-    # ---- Domain
+    # Persistent domain
     domain_min = pd.to_datetime(view_start)
     domain_max = pd.to_datetime(view_end)
 
-    # ---- Calendar span
+    # Data span for calendar layers
     min_x = min(seg["start"].min(), seg["end"].min())
     max_x = max(seg["start"].max(), seg["end"].max())
 
-    # ---- Month bands (background)
+    # Background monthly shading (very light)
     bands_df = build_month_bands(min_x, max_x)
     month_shade = (
         alt.Chart(bands_df)
@@ -205,37 +206,49 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         )
     )
 
-    # ---- Grid lines
+    # Grid lines
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
-    weeks = pd.date_range(pd.Timestamp(min_x).to_period("W-MON").start_time,
-                          pd.Timestamp(max_x).to_period("W-MON").start_time,
-                          freq="W-MON")
-    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#9AA0A6", strokeWidth=1.5).encode(x="t:T")
-    week_grid  = alt.Chart(pd.DataFrame({"t": weeks})).mark_rule(stroke="#E5E7EB", strokeWidth=1).encode(x="t:T")
+    week_start = pd.Timestamp(min_x).to_period("W-MON").start_time
+    week_end   = pd.Timestamp(max_x).to_period("W-MON").start_time
+    weeks = pd.date_range(week_start, week_end, freq="W-MON")
 
-    # ---- Base (hide y labels on the axis; we will draw our own)
+    month_grid = (
+        alt.Chart(pd.DataFrame({"t": months}))
+        .mark_rule(stroke="#9AA0A6", strokeWidth=1.5)
+        .encode(x="t:T")
+    )
+    week_grid = (
+        alt.Chart(pd.DataFrame({"t": weeks}))
+        .mark_rule(stroke="#E5E7EB", strokeWidth=1)
+        .encode(x="t:T")
+    )
+
+    # Base: left y labels (visible, left-aligned, wrapped)
     base = alt.Chart(seg).encode(
         y=alt.Y(
             "y_label:N",
             sort=y_order,
             axis=alt.Axis(
                 title=None,
-                labels=False,   # <-- hide built-in labels
-                ticks=False,
-                domain=False    # <-- we draw our own vertical rule
+                labelLimit=8000,
+                labelFontSize=14,
+                labelAlign="left",
+                labelPadding=8
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
     )
 
-    # ---- Bars
+    # Bars (segments)
     bars = base.mark_bar(cornerRadius=3).encode(
         x=alt.X(
             "start:T",
-            axis=alt.Axis(title=None, format="%b %Y", tickCount="month",
-                          orient="top", labelFontSize=12, tickSize=6),
+            axis=alt.Axis(
+                title=None, format="%b %Y", tickCount="month",
+                orient="top", labelFontSize=12, tickSize=6
+            ),
             scale=alt.Scale(domain=[domain_min, domain_max]),
         ),
         x2=alt.X2("end:T"),
@@ -248,54 +261,38 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         ],
     )
 
-    # ---- Start/End labels above bars
+    # Start/End date labels (small, above bar)
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111")\
                        .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=11, color="#111")\
                        .encode(x="end:T",   text=alt.Text("end:T",   format="%d %b"))
 
-    # ---- OPTIONAL: In-bar text (leave it out if you want clean bars)
-    text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
+    # In-bar title annotation (centre). Uses wrapped title_inbar text.
+    text_cond = alt.condition(
+        alt.datum.bar_days >= 10,
+        alt.value(1),  # show if bar long enough
+        alt.value(0)   # hide otherwise
+    )
+    
     inbar = base.mark_text(
-        align="center", baseline="middle", fontSize=10, fill="white", stroke=None
+        align="center",
+        baseline="middle",
+        fontSize=12,
+        fill="white",             # white font
+        stroke=None               # remove outline (or set stroke="black" if you want a thin outline)
     ).encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
-        text=alt.Text("title_inbar:N"),
+        text=alt.Text("title_inbar:N"),   # wrapped version
         opacity=text_cond
     )
 
-    # ---- LEFT AXIS LINE (solid) at the view start
-    y_axis_rule = alt.Chart(pd.DataFrame({"x": [domain_min]})).mark_rule(
-        stroke="#111", strokeWidth=1.0
-    ).encode(x=alt.X("x:T", scale=alt.Scale(domain=[domain_min, domain_max])))
-
-    # ---- CUSTOM MULTI-LINE Y LABELS (use your wrapped y_label with '\n')
-    # Put all labels at the left boundary (domain_min) and right-align them.
-    seg_labels = seg.assign(_x=domain_min)
-    left_labels = (
-        alt.Chart(seg_labels)
-        .mark_text(align="right", baseline="middle", dx=-6, fontSize=13)  # dx moves labels left of the rule
-        .encode(
-            x=alt.X("_x:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
-            y=alt.Y("y_label:N", sort=y_order, axis=None),
-            text="y_label:N"     # must already contain '\n' from your wrap_label(..., max_lines=2)
-        )
-    )
-
     chart = (
-        month_shade
-        + week_grid
-        + month_grid
-        + y_axis_rule     # draw the axis line
-        + left_labels     # draw wrapped labels
-        + bars
-        + start_labels
-        + end_labels
-        # + inbar        # uncomment if you still want in-bar text
-    ).properties(height=chart_height).configure_axis(grid=False).configure_view(strokeWidth=0)
-
+        (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)
+        .properties(height=chart_height)
+        .configure_axis(grid=False)
+        .configure_view(strokeWidth=0)
+    )
     return chart
-
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
@@ -459,7 +456,7 @@ with tab1:
     if chart is None:
         st.info("No rows with valid dates to display.")
     else:
-        st.altair_chart(chart, use_container_width=False)
+        st.altair_chart(chart, use_container_width=True)
 
 with tab2:
     st.subheader("Filtered table")
