@@ -278,8 +278,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
     
     inbar = base.mark_text(
-        align="left",
-        baseline="left",
+        align="center",
+        baseline="middle",
         fontSize=10,
         fill="white",             # white font
         stroke=None               # remove outline (or set stroke="black" if you want a thin outline)
