@@ -587,5 +587,24 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
     
     # ▶ Ensure Cluster column always exists (even if no topics were detected)
     df["Cluster"] = cluster
+
+    # -----------------------------------------------------------------------------
+    # QUALITY CHECK: drop false-positive topic rows
+    #   Criteria: Code is present but *all* other main fields are missing/empty
+    # -----------------------------------------------------------------------------
+    essential_cols = [
+        "Title", "Opening Date", "Deadline", "First Stage Deadline",
+        "Second Stage Deadline", "Destination", "Budget Per Project",
+        "Total Budget", "Type of Action", "TRL", "Call Name",
+        "Expected Outcome", "Scope", "Description"
+    ]
+    
+    def _is_effectively_empty(val):
+        return (val is None) or (isinstance(val, str) and not val.strip())
+    
+    mask_all_empty = df[essential_cols].applymap(_is_effectively_empty).all(axis=1)
+    df = df.loc[~mask_all_empty].reset_index(drop=True)
+
+    
     return df
 
