@@ -235,7 +235,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=8000,
                 labelFontSize=16,
                 labelAlign="right",
-                labelPadding=20,
+                labelPadding=4,
                 domain=True,          # <--- force draw vertical line
                 ticks=False           # optional, removes little tick marks
             )
