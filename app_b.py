@@ -1,11 +1,11 @@
+# app_b.py — Altair Gantt + Filters (tailored to your Excel)
 from __future__ import annotations
-import io, json
+import io
 import pandas as pd
 import streamlit as st
-from dateutil import tz
-import streamlit.components.v1 as components
+import altair as alt
 
-# ---------- Column mapping tailored to your Excel ----------
+# ---------- Column mapping for your Excel ----------
 COLUMN_MAP = {
     "Code": "code",
     "Title": "title",
@@ -31,45 +31,43 @@ COLUMN_MAP = {
 }
 
 DISPLAY_COLS = [
-    "code","title","opening_date","deadline","first_deadline","second_deadline","two_stage",
+    "code","title","opening_date",
+    "deadline","first_deadline","second_deadline","two_stage",
     "cluster","destination_or_strand","type_of_action","trl",
     "budget_per_project_eur","total_budget_eur","num_projects",
-    "call_name","version_label","source_filename","parsed_on_utc"
+    "call_name","version_label","source_filename","parsed_on_utc",
 ]
-
-LOCAL_TZ = tz.gettz("Europe/Brussels")
 
 # ---------- Helpers ----------
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
-    # Trim headers first
+    # trim headers and map to canonical names
     df.columns = [c.strip() for c in df.columns]
-
-    # Apply direct mapping (Title Case -> snake_case)
     for src, dst in COLUMN_MAP.items():
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
-
-    # Lowercase any remaining headers for safety
+    # normalise any remaining headers (lowercase)
     df = df.rename(columns={c: c.strip().lower() for c in df.columns})
-
-    # Ensure programme exists; cluster already mapped above
+    # programme default
     if "programme" not in df.columns:
         df["programme"] = "Horizon Europe"
 
-    # Parse dates (EU day-first)
+    # coerce dates (EU format)
     for c in ("opening_date","deadline","first_deadline","second_deadline"):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
 
-    # Numbers
+    # numeric
     for c in ("budget_per_project_eur","total_budget_eur","trl","num_projects"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # Two-stage to bool if present
+    # two_stage to bool-ish
     if "two_stage" in df.columns:
-        # tolerate text like "True"/"FALSE"/"Yes"
-        df["two_stage"] = df["two_stage"].astype(str).str.lower().map({"true": True, "false": False, "yes": True, "no": False})
+        df["two_stage"] = (
+            df["two_stage"].astype(str).str.strip().str.lower()
+            .map({"true": True, "false": False, "yes": True, "no": False})
+            .fillna(False)
+        )
     else:
         df["two_stage"] = False
 
@@ -90,106 +88,54 @@ def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
         hi = (pd.to_datetime(hi) + pd.Timedelta(days=1)).date()
     return lo, hi
 
-def _safe(val):
-    return "" if pd.isna(val) else str(val)
+def build_altair_chart(df: pd.DataFrame, end_col: str):
+    g = df.dropna(subset=["opening_date", end_col, "title"]).copy()
+    if g.empty:
+        return None
 
-def choose_deadline(row, mode: str):
-    if mode == "Final deadline":
-        return row.get("deadline")
-    elif mode == "First stage":
-        return row.get("first_deadline")
-    elif mode == "Second stage":
-        return row.get("second_deadline")
-    return row.get("deadline")
+    # tidy y-label: code — title; wrap every ~50 chars
+    g["y_label"] = (g["code"].fillna("").astype(str) + " — " + g["title"].astype(str))\
+        .str.replace(r"(.{50})", r"\1\n", regex=True)
 
-def build_frappe_tasks(df: pd.DataFrame, deadline_mode: str = "Final deadline") -> list[dict]:
-    tasks = []
-    # pick the deadline column based on mode
-    for i, r in df.iterrows():
-        end_dt = choose_deadline(r, deadline_mode)
-        if pd.isna(r.get("opening_date")) or pd.isna(end_dt):
-            continue
+    row_height = 28
+    chart_height = max(400, len(g) * row_height)
 
-        tasks.append({
-            "id": _safe(r.get("code")) or f"row-{i}",
-            "name": f"{_safe(r.get('code'))} — {_safe(r.get('title'))}",
-            "start": pd.to_datetime(r.get("opening_date")).date().isoformat(),
-            "end":   pd.to_datetime(end_dt).date().isoformat(),
-            "progress": 100,
-            "custom_class": (_safe(r.get("programme")) or "default").replace(" ", "-").lower(),
-            "details": {
-                "Title": _safe(r.get("title")),
-                "Type": _safe(r.get("type_of_action")),
-                "Budget (€)": f"{int(r.get('budget_per_project_eur') or 0):,}",
-                "Open": pd.to_datetime(r.get("opening_date")).strftime("%d %b %Y"),
-                "Close": pd.to_datetime(end_dt).strftime("%d %b %Y"),
-                "Two-stage": "Yes" if bool(r.get("two_stage")) else "No",
-                "Cluster": _safe(r.get("cluster")),
-                "Destination/Strand": _safe(r.get("destination_or_strand")),
-                "Version": _safe(r.get("version_label")),
-            }
-        })
-    return tasks
+    base = alt.Chart(g).encode(
+        y=alt.Y("y_label:N", sort='-x', axis=alt.Axis(title=None, labelLimit=360)),
+        color=alt.Color("programme:N", legend=None),
+    )
 
-def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: int = 700):
-    tasks_json = json.dumps(tasks)
-    html = f"""
-    <div id="gantt" class="gantt-container" style="width:100%; overflow-x:auto;"></div>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.css">
-    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.min.js"></script>
-    <style>
-      .bar {{ height: 22px; }}
-      .bar-wrapper {{ margin-bottom: 10px; }}
-      .grid .row.lines .line {{ stroke: #e5e7eb; stroke-width: 1; }}
-      .grid .tick {{ stroke: #cbd5e1; }}
-      .popup-wrapper {{ max-width: 460px; }}
-      .gantt .bar .bar-rect {{ rx: 4px; ry: 4px; }}
-    </style>
-    <script>
-      const tasks = {tasks_json};
-      const el = document.getElementById('gantt');
-      el.style.height = '{height_px}px';
+    bars = base.mark_bar(cornerRadius=3).encode(
+        x=alt.X("opening_date:T",
+                axis=alt.Axis(title=None, format="%b %Y", tickCount="month")),
+        x2=alt.X2(f"{end_col}:T"),
+        tooltip=[
+            alt.Tooltip("title:N", title="Title"),
+            alt.Tooltip("type_of_action:N", title="Type"),
+            alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
+            alt.Tooltip("opening_date:T", title="Open", format="%d %b %Y"),
+            alt.Tooltip(f"{end_col}:T", title="Close", format="%d %b %Y"),
+            alt.Tooltip("cluster:N", title="Cluster"),
+            alt.Tooltip("destination_or_strand:N", title="Destination/Strand"),
+            alt.Tooltip("version_label:N", title="Version"),
+        ],
+    )
 
-      const colorMap = {{
-        "horizon-europe": "#3b82f6",
-        "digital-europe": "#22c55e",
-        "erasmus+": "#f59e0b",
-        "default": "#64748b"
-      }};
+    # monthly grid
+    months = pd.date_range(g["opening_date"].min().floor("D"),
+                           g[end_col].max().ceil("D"),
+                           freq="MS")
+    grid = alt.Chart(pd.DataFrame({"month": months})).mark_rule(stroke="#E5E7EB").encode(x="month:T")
 
-      const gantt = new Gantt(el, tasks, {{
-        view_mode: "{view_mode}",
-        custom_popup_html: function(task) {{
-          const d = task.details || {{}};
-          return `
-            <div class="details-container">
-              <h5 style="margin:0 0 6px 0;">${{task.name}}</h5>
-              <div><b>Type:</b> ${{d["Type"] || ""}}</div>
-              <div><b>Budget (€):</b> ${{d["Budget (€)"] || ""}}</div>
-              <div><b>Open → Close:</b> ${{d["Open"] || ""}} → ${{d["Close"] || ""}}</div>
-              <div><b>Two-stage:</b> ${{d["Two-stage"] || ""}}</div>
-              <div><b>Cluster:</b> ${{d["Cluster"] || ""}}</div>
-              <div><b>Destination/Strand:</b> ${{d["Destination/Strand"] || ""}}</div>
-              <div><b>Version:</b> ${{d["Version"] || ""}}</div>
-            </div>`;
-        }}
-      }});
+    chart = (grid + bars).properties(height=chart_height)\
+        .configure_axis(grid=False)\
+        .configure_view(strokeWidth=0)
 
-      // Apply colors per programme class
-      setTimeout(() => {{
-        document.querySelectorAll('.bar').forEach(bar => {{
-          const klass = Array.from(bar.classList).find(c => colorMap[c]);
-          const color = colorMap[klass] || colorMap.default;
-          bar.style.fill = color;
-        }});
-      }}, 0);
-    </script>
-    """
-    components.html(html, height=height_px + 40, scrolling=True)
+    return chart
 
 # ---------- UI ----------
-st.set_page_config(page_title="Calls Explorer (Frappe Gantt)", layout="wide")
-st.title("Calls Explorer (Frappe Gantt + Filters)")
+st.set_page_config(page_title="Calls Explorer (Altair)", layout="wide")
+st.title("Calls Explorer (Altair Gantt + Filters)")
 
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
 if not upl:
@@ -200,27 +146,26 @@ sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
 raw = pd.read_excel(xls, sheet_name=sheet)
 df = canonicalise(raw)
 
-# Filters
+# Sidebar filters
 st.sidebar.header("Filters")
 prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
-cluster_opts = sorted([c for c in df["cluster"].dropna().unique().tolist() if pd.notna(c)])
-type_opts    = sorted([t for t in df["type_of_action"].dropna().unique().tolist() if pd.notna(t)])
-trl_opts     = sorted([str(int(x)) for x in df["trl"].dropna().unique() if pd.notna(x)])
-dest_opts    = sorted([d for d in df["destination_or_strand"].dropna().unique().tolist() if pd.notna(d)])
+cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
+type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
+trl_opts     = sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
+dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d != ""])
 
-programmes = st.sidebar.multiselect("Programme", options=prog_opts, default=prog_opts if prog_opts else [])
+programmes = st.sidebar.multiselect("Programme", options=prog_opts, default=prog_opts)
 clusters   = st.sidebar.multiselect("Cluster", options=cluster_opts)
 types      = st.sidebar.multiselect("Type of Action", options=type_opts)
 trls       = st.sidebar.multiselect("TRL", options=trl_opts)
 dests      = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
 
-# Date bounds from the three date columns (opening & any deadlines)
+# Dates: consider any deadline for overall bounds
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
-# For overall allowed range, consider any of the deadline fields
 dead_all = pd.concat([
     pd.to_datetime(df.get("deadline"), errors="coerce"),
     pd.to_datetime(df.get("first_deadline"), errors="coerce"),
-    pd.to_datetime(df.get("second_deadline"), errors="coerce")
+    pd.to_datetime(df.get("second_deadline"), errors="coerce"),
 ], axis=0)
 dead_lo, dead_hi = safe_date_bounds(dead_all)
 
@@ -236,7 +181,7 @@ with c3:
 with c4:
     dead_end   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
-# Budget slider (robust)
+# Budget slider
 bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
 if bud_series.empty:
     min_bud, max_bud = 0.0, 1_000_000.0
@@ -250,52 +195,55 @@ budget_range = st.sidebar.slider("Budget per project (EUR)", min_bud, max_bud, (
 st.sidebar.header("Search")
 keyword = st.sidebar.text_input("Keyword (searches all columns)")
 
-# Deadline mode (what to plot as the bar's end)
+# Deadline mode for the bar end
 st.sidebar.header("Gantt options")
 deadline_mode = st.sidebar.selectbox("Deadline to plot", ["Final deadline", "First stage", "Second stage"], index=0)
-view_mode = st.sidebar.selectbox("Gantt scale", ["Month","Week","Day"], index=0)
-row_px    = st.sidebar.slider("Row height (px)", 20, 60, 28)
+end_col = {"Final deadline": "deadline", "First stage": "first_deadline", "Second stage": "second_deadline"}[deadline_mode]
 
-# Apply filters
-df_kw = keyword_filter(df, keyword)
+# Apply filters (and collect diagnostics)
+diagnostics = {}
+
+df_kw = keyword_filter(df, keyword); diagnostics["after keyword"] = len(df_kw)
 f = df_kw.copy()
-if programmes: f = f[f["programme"].isin(programmes)]
-if clusters:   f = f[f["cluster"].isin(clusters)]
-if types:      f = f[f["type_of_action"].isin(types)]
+
+if programmes:
+    f = f[f["programme"].isin(programmes)]; diagnostics["after programme"] = len(f)
+if clusters:
+    f = f[f["cluster"].isin(clusters)]; diagnostics["after cluster"] = len(f)
+if types:
+    f = f[f["type_of_action"].isin(types)]; diagnostics["after type"] = len(f)
 if trls:
     trl_str = f["trl"].dropna().astype("Int64").astype(str)
-    f = f[trl_str.isin(trls)]
-if dests:      f = f[f["destination_or_strand"].isin(dests)]
+    f = f[trl_str.isin(trls)]; diagnostics["after trl"] = len(f)
+if dests:
+    f = f[f["destination_or_strand"].isin(dests)]; diagnostics["after destination"] = len(f)
 
-# Date filters: opening window
+# date filters
 f = f[(f["opening_date"] >= pd.to_datetime(open_start)) & (f["opening_date"] <= pd.to_datetime(open_end))]
+diagnostics["after opening window"] = len(f)
 
-# Date filters: chosen deadline column for plotting
-deadline_col = "deadline" if deadline_mode == "Final deadline" else ("first_deadline" if deadline_mode == "First stage" else "second_deadline")
-if deadline_col not in f.columns:
-    # if missing, keep all rows (the build will skip rows without both dates)
-    pass
-else:
-    f = f[(pd.to_datetime(f[deadline_col], errors="coerce") >= pd.to_datetime(dead_start)) &
-          (pd.to_datetime(f[deadline_col], errors="coerce") <= pd.to_datetime(dead_end))]
+if end_col in f.columns:
+    f = f[(pd.to_datetime(f[end_col], errors="coerce") >= pd.to_datetime(dead_start)) &
+          (pd.to_datetime(f[end_col], errors="coerce") <= pd.to_datetime(dead_end))]
+    diagnostics["after deadline window"] = len(f)
 
-# Budget filter
+# budget filter
 f = f[(f["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
       (f["budget_per_project_eur"].fillna(0) <= budget_range[1])]
+diagnostics["after budget"] = len(f)
 
 st.markdown(f"**Showing {len(f)} rows** after filters/search.")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
+tab1, tab2, tab3, tab4 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data", "🛠 Diagnostics"])
 
 with tab1:
     st.subheader(f"Gantt (Opening → {deadline_mode})")
-    tasks = build_frappe_tasks(f, deadline_mode=deadline_mode)
-    if not tasks:
-        st.info("No rows with valid dates for the selected deadline mode.")
+    chart = build_altair_chart(f, end_col=end_col)
+    if chart is None:
+        st.info("No rows with valid Opening and selected deadline to display.")
     else:
-        chart_h = max(360, int(len(tasks) * (row_px + 10)))
-        render_frappe_gantt(tasks, view_mode=view_mode, height_px=chart_h)
+        st.altair_chart(chart, use_container_width=True)
 
 with tab2:
     st.subheader("Filtered table")
@@ -315,3 +263,8 @@ with tab3:
         title = f"{row.get('code','')} — {row.get('title','')}"
         with st.expander(title):
             st.write(row.to_dict())
+
+with tab4:
+    st.subheader("Diagnostics")
+    st.write(diagnostics)
+    st.caption("If the Gantt is empty, check which step dropped rows. The chart needs both `Opening Date` and the selected deadline column.")
