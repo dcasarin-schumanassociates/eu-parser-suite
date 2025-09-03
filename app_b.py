@@ -1,9 +1,11 @@
-# app_b.py — Altair Gantt with persistent view window, robust labels
+# app_b_echarts.py — ECharts Gantt with monthly shading, dataZoom, persistent view
 from __future__ import annotations
 import io
+import json
+import math
 import pandas as pd
 import streamlit as st
-import altair as alt
+from streamlit_echarts import st_echarts
 
 # ---------- Column mapping tailored to your Excel ----------
 COLUMN_MAP = {
@@ -86,284 +88,97 @@ def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
 def wrap_label(text: str, width=38, max_lines=3) -> str:
     s = str(text or "")
     parts = [s[i:i+width] for i in range(0, len(s), width)]
-    parts = parts[:max_lines]
-    return "\n".join(parts)
+    return "\n".join(parts[:max_lines])
 
-def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
-    start = pd.Timestamp(min_x).to_period("M").start_time
-    end   = (pd.Timestamp(max_x).to_period("M") + 1).start_time
+def earliest_deadline_row(row: pd.Series):
+    vals = [
+        pd.to_datetime(row.get("deadline"), errors="coerce"),
+        pd.to_datetime(row.get("first_deadline"), errors="coerce"),
+        pd.to_datetime(row.get("second_deadline"), errors="coerce"),
+    ]
+    vals = [x for x in vals if pd.notna(x)]
+    return min(vals) if vals else pd.NaT
+
+def month_mark_areas(min_ts: pd.Timestamp, max_ts: pd.Timestamp):
+    """Alternating monthly shaded bands as ECharts markArea data."""
+    start = pd.Timestamp(min_ts).to_period("M").start_time
+    end   = (pd.Timestamp(max_ts).to_period("M") + 1).start_time
     months = pd.date_range(start, end, freq="MS")
-    rows = []
-    for i in range(len(months) - 1):
-        rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
-    return pd.DataFrame(rows)
+    areas = []
+    for i in range(len(months)-1):
+        if i % 2 == 1:  # shade every other month
+            areas.append([
+                {"xAxis": months[i].strftime("%Y-%m-%d")},
+                {"xAxis": months[i+1].strftime("%Y-%m-%d")},
+            ])
+    return areas
 
-def build_altair_chart(df: pd.DataFrame, end_col: str, view_start, view_end):
-    # Sort key: earliest of any deadline
+def build_echarts_option(df: pd.DataFrame, end_col: str, view_start, view_end):
     g = df.copy()
-    g["earliest_deadline"] = pd.to_datetime(
-        pd.concat(
-            [
-                pd.to_datetime(g.get("deadline"), errors="coerce"),
-                pd.to_datetime(g.get("first_deadline"), errors="coerce"),
-                pd.to_datetime(g.get("second_deadline"), errors="coerce"),
-            ],
-            axis=1,
-        ).min(axis=1),
-        errors="coerce",
-    )
 
-    # Require opening + selected end date + title
+    # keep rows that have opening + selected end date + title
     g = g.dropna(subset=["opening_date", end_col, "title"])
     if g.empty:
         return None
 
-    # Stable, wrapped y-label (CODE — Title). Keep it unique by including the code.
-    full_label = g["code"].fillna("").astype(str) + " — " + g["title"].astype(str)
-    g = g.assign(y_label=[wrap_label(t, width=38, max_lines=3) for t in full_label])
+    # y labels: CODE — Title wrapped
+    g["y_label"] = (g["code"].fillna("").astype(str) + " — " + g["title"].astype(str))\
+                    .apply(lambda s: wrap_label(s, width=38, max_lines=3))
 
-    # Sort earliest first (urgent on top)
+    # sort by earliest deadline (min of any deadline)
+    g["earliest_deadline"] = g.apply(earliest_deadline_row, axis=1)
     g = g.sort_values(["earliest_deadline", "opening_date"], ascending=[True, True])
-    y_order = g["y_label"].tolist()
 
-    # Chart height proportional to rows
-    row_height = 46  # more room for wrapped labels
-    chart_height = max(520, len(g) * row_height)
+    y_labels = g["y_label"].tolist()
+    # map each row to ECharts data item
+    def to_ms(ts): return int(pd.Timestamp(ts).timestamp() * 1000)
+    data = []
+    for _, r in g.iterrows():
+        start = pd.to_datetime(r["opening_date"])
+        end = pd.to_datetime(r[end_col])
+        # Skip inverted bars
+        if pd.isna(start) or pd.isna(end) or end < start:
+            continue
+        item = {
+            "name": str(r.get("code") or ""),
+            "value": [
+                r["y_label"],           # category
+                to_ms(start),           # start (ms)
+                to_ms(end),             # end   (ms)
+            ],
+            "title": str(r.get("title") or ""),
+            "type_of_action": str(r.get("type_of_action") or ""),
+            "budget": float(r.get("budget_per_project_eur") or 0),
+            "open_str": start.strftime("%d %b %Y"),
+            "close_str": end.strftime("%d %b %Y"),
+            "programme": str(r.get("programme") or ""),
+        }
+        data.append(item)
 
-    # Calendar domain from persistent view window
-    domain_min = pd.to_datetime(view_start)
-    domain_max = pd.to_datetime(view_end)
+    if not data:
+        return None
 
-    # Background monthly shading (based on actual data span for nicer alternation)
-    min_x = min(g["opening_date"].min(), g[end_col].min())
-    max_x = max(g["opening_date"].max(), g[end_col].max())
-    bands_df = build_month_bands(min_x, max_x)
-    month_bands = (
-        alt.Chart(bands_df)
-        .mark_rect()
-        .encode(
-            x=alt.X("start:T", axis=None),
-            x2=alt.X2("end:T"),
-            opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]), legend=None),
-            color=alt.value("#000"),
-        )
-    )
+    # chart sizing
+    row_px = 46
+    height_px = max(520, int(len(y_labels) * row_px))
 
-    # Monthly & weekly grid lines for stronger calendar look
-    months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
-                           pd.Timestamp(max_x).to_period("M").end_time,
-                           freq="MS")
-    week_start = pd.Timestamp(min_x).to_period("W-MON").start_time
-    week_end   = pd.Timestamp(max_x).to_period("W-MON").start_time
-    weeks = pd.date_range(week_start, week_end, freq="W-MON")
+    # calendar span for shading bands
+    min_x = min(pd.to_datetime(g["opening_date"]).min(), pd.to_datetime(g[end_col]).min())
+    max_x = max(pd.to_datetime(g["opening_date"]).max(), pd.to_datetime(g[end_col]).max())
+    mark_areas = month_mark_areas(min_x, max_x)
 
-    month_grid = (
-        alt.Chart(pd.DataFrame({"t": months}))
-        .mark_rule(stroke="#9AA0A6", strokeWidth=1.5)
-        .encode(x="t:T")
-    )
-    week_grid = (
-        alt.Chart(pd.DataFrame({"t": weeks}))
-        .mark_rule(stroke="#E5E7EB", strokeWidth=1)
-        .encode(x="t:T")
-    )
+    # persistent view window (xAxis min/max)
+    x_min = pd.to_datetime(view_start).strftime("%Y-%m-%d")
+    x_max = pd.to_datetime(view_end).strftime("%Y-%m-%d")
 
-    # Base encodings
-    base = alt.Chart(g).encode(
-        y=alt.Y(
-            "y_label:N",
-            sort=y_order,
-            axis=alt.Axis(title=None, labelLimit=4000, labelFontSize=12)  # keep labels visible
-        ),
-        color=alt.Color("programme:N", legend=None),
-    )
+    # custom renderItem to draw duration bars between start/end ms on y category
+    render_item = """
+    function(params, api) {
+      var cat = api.value(0);
+      var start = api.value(1);
+      var end = api.value(2);
+      var yIdx = api.coord([api.value(1), cat])[1];
+      var startCoord = api.coord([start, cat]);
+      var endCoord   = api.coord([end, cat]);
+      va
 
-    # Bars
-    bars = base.mark_bar(cornerRadius=3).encode(
-        x=alt.X(
-            "opening_date:T",
-            axis=alt.Axis(
-                title=None,
-                format="%b %Y",
-                tickCount="month",
-                orient="top",            # top axis (bigger)
-                labelFontSize=12,
-                tickSize=6
-            ),
-            scale=alt.Scale(domain=[domain_min, domain_max]),
-        ),
-        x2=alt.X2(f"{end_col}:T"),
-        tooltip=[
-            alt.Tooltip("title:N", title="Title"),
-            alt.Tooltip("type_of_action:N", title="Type"),
-            alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
-            alt.Tooltip("opening_date:T", title="Open", format="%d %b %Y"),
-            alt.Tooltip(f"{end_col}:T", title="Close", format="%d %b %Y"),
-        ],
-    )
-
-    # Start & End date labels on bars
-    start_labels = base.mark_text(
-        align="right", dx=-4, dy=-8, fontSize=11, color="#111"
-    ).encode(
-        x="opening_date:T",
-        text=alt.Text("opening_date:T", format="%d %b"),
-    )
-    end_labels = base.mark_text(
-        align="left", dx=4, dy=-8, fontSize=11, color="#111"
-    ).encode(
-        x=f"{end_col}:T",
-        text=alt.Text(f"{end_col}:T", format="%d %b"),
-    )
-
-    chart = (
-        (month_bands + week_grid + month_grid + bars + start_labels + end_labels)
-        .properties(height=chart_height)
-        .configure_axis(grid=False)
-        .configure_view(strokeWidth=0)
-    )
-    return chart
-
-# ---------- UI ----------
-st.set_page_config(page_title="Calls Explorer (Altair)", layout="wide")
-st.title("Calls Explorer (Altair Gantt + Filters)")
-
-upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
-if not upl:
-    st.stop()
-
-xls = pd.ExcelFile(upl)
-sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
-raw = pd.read_excel(xls, sheet_name=sheet)
-df = canonicalise(raw)
-
-# Sidebar filters
-st.sidebar.header("Filters")
-prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
-cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
-type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
-trl_opts     = sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
-dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d != ""])
-
-programmes = st.sidebar.multiselect("Programme", options=prog_opts, default=prog_opts)
-clusters   = st.sidebar.multiselect("Cluster", options=cluster_opts)
-types      = st.sidebar.multiselect("Type of Action", options=type_opts)
-trls       = st.sidebar.multiselect("TRL", options=trl_opts)
-dests      = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
-
-# Dates: compute overall bounds
-open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
-dead_all = pd.concat([
-    pd.to_datetime(df.get("deadline"), errors="coerce"),
-    pd.to_datetime(df.get("first_deadline"), errors="coerce"),
-    pd.to_datetime(df.get("second_deadline"), errors="coerce"),
-], axis=0)
-dead_lo, dead_hi = safe_date_bounds(dead_all)
-
-c1, c2 = st.sidebar.columns(2)
-with c1:
-    open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-with c2:
-    open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
-
-c3, c4 = st.sidebar.columns(2)
-with c3:
-    dead_start = st.date_input("Close from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-with c4:
-    dead_end   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
-
-# Budget slider
-bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
-if bud_series.empty:
-    min_bud, max_bud = 0.0, 1_000_000.0
-else:
-    min_bud, max_bud = float(bud_series.min()), float(bud_series.max())
-    if not (min_bud < max_bud):
-        min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
-budget_range = st.sidebar.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
-
-# Search
-st.sidebar.header("Search")
-keyword = st.sidebar.text_input("Keyword (searches all columns)")
-
-# Deadline mode for the bar end
-st.sidebar.header("Gantt options")
-deadline_mode = st.sidebar.selectbox("Deadline to plot", ["Final deadline", "First stage", "Second stage"], index=0)
-end_col = {"Final deadline": "deadline", "First stage": "first_deadline", "Second stage": "second_deadline"}[deadline_mode]
-
-# Persistent VIEW WINDOW (prevents reset on reruns/tab switches)
-st.sidebar.header("View window (persistent)")
-# Initialise session state once
-if "view_start" not in st.session_state or "view_end" not in st.session_state:
-    # default to data span padded by 30 days
-    data_min = min(pd.to_datetime(df.get("opening_date"), errors="coerce").min(),
-                   pd.to_datetime(df.get("deadline"), errors="coerce").min(),
-                   pd.to_datetime(df.get("first_deadline"), errors="coerce").min(),
-                   pd.to_datetime(df.get("second_deadline"), errors="coerce").min())
-    data_max = max(pd.to_datetime(df.get("opening_date"), errors="coerce").max(),
-                   pd.to_datetime(df.get("deadline"), errors="coerce").max(),
-                   pd.to_datetime(df.get("first_deadline"), errors="coerce").max(),
-                   pd.to_datetime(df.get("second_deadline"), errors="coerce").max())
-    pad = pd.Timedelta(days=30)
-    st.session_state.view_start = (data_min - pad).date() if pd.notna(data_min) else open_lo
-    st.session_state.view_end   = (data_max + pad).date() if pd.notna(data_max) else open_hi
-
-view_start = st.sidebar.date_input("View from", value=st.session_state.view_start)
-view_end   = st.sidebar.date_input("View to",   value=st.session_state.view_end)
-
-# Save back to session_state so it persists
-st.session_state.view_start = view_start
-st.session_state.view_end   = view_end
-
-# Apply filters
-df_kw = keyword_filter(df, keyword)
-f = df_kw.copy()
-if programmes: f = f[f["programme"].isin(programmes)]
-if clusters:   f = f[f["cluster"].isin(clusters)]
-if types:      f = f[f["type_of_action"].isin(types)]
-if trls:
-    trl_str = f["trl"].dropna().astype("Int64").astype(str)
-    f = f[trl_str.isin(trls)]
-if dests:      f = f[f["destination_or_strand"].isin(dests)]
-
-# Date filters
-f = f[(f["opening_date"] >= pd.to_datetime(open_start)) & (f["opening_date"] <= pd.to_datetime(open_end))]
-if end_col in f.columns:
-    f = f[(pd.to_datetime(f[end_col], errors="coerce") >= pd.to_datetime(dead_start)) &
-          (pd.to_datetime(f[end_col], errors="coerce") <= pd.to_datetime(dead_end))]
-
-# Budget filter
-f = f[(f["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
-      (f["budget_per_project_eur"].fillna(0) <= budget_range[1])]
-
-st.markdown(f"**Showing {len(f)} rows** after filters/search.")
-
-# Tabs
-tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
-
-with tab1:
-    st.subheader(f"Gantt (Opening → {deadline_mode})")
-    chart = build_altair_chart(f, end_col=end_col, view_start=view_start, view_end=view_end)
-    if chart is None:
-        st.info("No rows with valid Opening and selected deadline to display.")
-    else:
-        st.altair_chart(chart, use_container_width=True)
-
-with tab2:
-    st.subheader("Filtered table")
-    show_cols = [c for c in DISPLAY_COLS if c in f.columns]
-    st.dataframe(f[show_cols], use_container_width=True, hide_index=True)
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as xw:
-        f.to_excel(xw, index=False, sheet_name="filtered")
-    out.seek(0)
-    st.download_button("⬇️ Download filtered (Excel)", out,
-                       file_name="calls_filtered.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-with tab3:
-    st.subheader("Full data (expand rows)")
-    for _, row in f.iterrows():
-        title = f"{row.get('code','')} — {row.get('title','')}"
-        with st.expander(title):
-            st.write(row.to_dict())
