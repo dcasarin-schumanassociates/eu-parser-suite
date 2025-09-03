@@ -157,7 +157,7 @@ def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
     m = TWO_STAGE_DEADLINES_RE.search(line)
     if not m:
         return {}
-    # Only the dates are returned; labels are ignored on purpose
+    # Only dates; ignore labels
     return {
         "deadline_stage1": m.group(1),
         "deadline_stage2": m.group(3),
@@ -170,12 +170,13 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     current_metadata: Dict[str, Any] = {
         "opening_date": None,
         "deadline": None,          # single-stage (existing behaviour)
-        "deadline_stage1": None,   # NEW: first-stage date
-        "deadline_stage2": None,   # NEW: second-stage date
-        "destination": None
+        "deadline_stage1": None,   # only for two-stage topics
+        "deadline_stage2": None,   # only for two-stage topics
+        "destination": None,
+        "is_two_stage": False,     # NEW
     }
 
-    # Make topic detection case-insensitive so codes like ...-two-stage match
+    # Case-insensitive: your codes can contain lowercase (e.g. ...-two-stage)
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
     collecting = False
 
@@ -190,10 +191,11 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
             current_metadata["destination"] = None
+            current_metadata["is_two_stage"] = False
             collecting = True
 
         elif collecting and lower.startswith("deadline"):
-            # KEEP: your original single-date detection (unchanged)
+            # KEEP: original single-date detection (unchanged)
             m = re.search(r"(\d{1,2} \w+ \d{4})", line)
             current_metadata["deadline"] = m.group(1) if m else None
 
@@ -201,6 +203,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             extra = parse_two_stage_deadlines(line)
             if extra:
                 current_metadata.update(extra)
+                # don't set the boolean yet; we’ll gate it per-topic code
 
         elif collecting and lower.startswith("destination"):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
@@ -211,19 +214,43 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                 code = match.group(1)
                 to_save = current_metadata.copy()
 
-                # IMPORTANT: only attach two-stage dates to two-stage topics
-                if "-two-stage" not in code.lower():
+                # IMPORTANT: only attach two-stage metadata to two-stage topics
+                if "-two-stage" in code.lower():
+                    to_save["is_two_stage"] = bool(
+                        to_save.get("deadline_stage1") and to_save.get("deadline_stage2")
+                    )
+                else:
+                    to_save["is_two_stage"] = False
                     to_save["deadline_stage1"] = None
                     to_save["deadline_stage2"] = None
 
                 metadata_map[code] = to_save
 
     return metadata_map
-
+    
 # ========== Public API ==========
 import pandas as pd
 from io import BytesIO
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+from datetime import datetime
+
+# Small helper: normalise "23 Sep 2025", "23 September 2025", "23 Sept. 2025" → "2025-09-23"
+def _normalise_date_iso(d: Optional[str]) -> Optional[str]:
+    if not d:
+        return None
+    s = " ".join(d.strip().split())  # collapse spaces
+    # remove trailing dot on month (e.g. "Sept.")
+    parts = s.split()
+    if len(parts) == 3 and parts[1].endswith("."):
+        parts[1] = parts[1].rstrip(".")
+        s = " ".join(parts)
+    # try common formats
+    for fmt in ("%d %b %Y", "%d %B %Y"):
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return None  # keep strict; avoids silent misparses
 
 def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unknown", parsed_on_utc: str = "") -> pd.DataFrame:
     """
@@ -249,12 +276,20 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
     df = pd.DataFrame([{
         "Code": t["code"],
         "Title": t["title"],
+
         "Opening Date": t.get("opening_date"),
-        # Existing single-stage deadline
         "Deadline": t.get("deadline"),
-        # New: populated only for two-stage topics
         "First Stage Deadline": t.get("deadline_stage1"),
         "Second Stage Deadline": t.get("deadline_stage2"),
+
+        # ISO-normalised mirrors (safe for calendar/Gantt)
+        "Opening Date (ISO)": _normalise_date_iso(t.get("opening_date")),
+        "Deadline (ISO)": _normalise_date_iso(t.get("deadline")),
+        "First Stage Deadline (ISO)": _normalise_date_iso(t.get("deadline_stage1")),
+        "Second Stage Deadline (ISO)": _normalise_date_iso(t.get("deadline_stage2")),
+
+        # Boolean flag for branching in visualisations/logic
+        "Two-Stage": bool(t.get("is_two_stage")),
 
         "Destination": t.get("destination"),
         "Budget Per Project": t.get("budget_per_project"),
@@ -267,10 +302,11 @@ def parse_pdf(file_like, *, source_filename: str = "", version_label: str = "Unk
         "Expected Outcome": t.get("expected_outcome"),
         "Scope": t.get("scope"),
         "Description": t.get("full_text"),
-        # provenance (optional; blank for now – add if you like)
+        # provenance (optional)
         "Source Filename": source_filename,
         "Version Label": version_label,
         "Parsed On (UTC)": parsed_on_utc,
     } for t in enriched])
 
     return df
+
