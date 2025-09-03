@@ -1,9 +1,9 @@
-# app_b.py
+# app_b.py (Altair version)
 from __future__ import annotations
 import io
 import pandas as pd
-import plotly.express as px
 import streamlit as st
+import altair as alt
 
 # ===================
 # Column mapping
@@ -72,121 +72,56 @@ def keyword_filter(df: pd.DataFrame, term: str) -> pd.DataFrame:
     return df[df.apply(lambda r: r.astype(str).str.lower().str.contains(term).any(), axis=1)]
 
 
-def make_gantt(df: pd.DataFrame):
-    g = df.dropna(subset=["opening_date", "deadline", "title"])
+def make_gantt_altair(df: pd.DataFrame):
+    g = df.dropna(subset=["opening_date", "deadline", "title"]).copy()
     if g.empty:
         return None
 
-    # Short labels (codes) for y-axis
-    g = g.assign(
-        _label=g["code"].fillna("").astype(str)
+    # Wrap long titles for y-axis
+    g["title_wrapped"] = g["code"].fillna("").astype(str) + " — " + g["title"].astype(str)
+    g["title_wrapped"] = g["title_wrapped"].str.replace(r"(.{50})", r"\1\n", regex=True)
+
+    row_height = 28
+    chart_height = max(400, len(g) * row_height)
+
+    base = alt.Chart(g).encode(
+        y=alt.Y("title_wrapped:N",
+                sort="-x",
+                axis=alt.Axis(title=None, labelLimit=300)),
+        color=alt.Color("programme:N", legend=None),
     )
 
-    fig = px.timeline(
-        g,
-        x_start="opening_date",
-        x_end="deadline",
-        y="_label",
-        color="programme",
-    )
-    fig.update_yaxes(autorange="reversed")
-
-    # Scale height dynamically
-    row_height = 40
-    chart_height = max(600, len(g) * row_height)
-
-    # Custom hovertemplate
-    fig.update_traces(
-        hovertemplate=(
-            "<b>%{customdata[0]}</b><br>"   # Title in bold
-            "Budget: €%{customdata[1]:,.0f}<br>"
-            "Type: %{customdata[2]}<br>"
-            "Open: %{x|%d %b %Y} → Close: %{x_end|%d %b %Y}<extra></extra>"
-        ),
-        # Pass only the fields we want as customdata
-        customdata=g[["title", "budget_per_project_eur", "type_of_action"]].values,
+    bars = base.mark_bar(cornerRadius=3).encode(
+        x=alt.X("opening_date:T", axis=alt.Axis(title=None, format="%b %Y", tickCount="month")),
+        x2="deadline:T",
+        tooltip=[
+            alt.Tooltip("title:N", title="Title"),
+            alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
+            alt.Tooltip("type_of_action:N", title="Type"),
+            alt.Tooltip("opening_date:T", title="Open", format="%d %b %Y"),
+            alt.Tooltip("deadline:T", title="Close", format="%d %b %Y"),
+        ],
     )
 
-    # Layout tweaks
-    fig.update_layout(
-        height=chart_height,
-        margin=dict(l=10, r=10, t=10, b=10),
-        bargap=0.4,
-        plot_bgcolor="white",
+    # Monthly grid lines
+    months = pd.date_range(g["opening_date"].min().floor("D"),
+                           g["deadline"].max().ceil("D"),
+                           freq="MS")
+    grid = alt.Chart(pd.DataFrame({"month": months}))\
+        .mark_rule(stroke="#DDD").encode(x="month:T")
 
-        # Bottom axis with monthly ticks
-        xaxis=dict(
-            dtick="M1",
-            tickformat="%b %Y",
-            showgrid=True,
-            gridcolor="rgba(180,180,180,0.6)",
-            gridwidth=1,
-        ),
+    chart = (grid + bars).properties(height=chart_height)\
+        .configure_axis(grid=False)\
+        .configure_view(strokeWidth=0)
 
-        # Top mirrored axis
-        xaxis2=dict(
-            overlaying="x",
-            side="top",
-            dtick="M1",
-            tickformat="%b %Y",
-            showgrid=False,
-        ),
-    )
-
-    return fig
-
-
-    # Scale height with row count
-    row_height = 40
-    chart_height = max(600, len(g) * row_height)
-
-    fig.update_layout(
-        height=chart_height,
-        margin=dict(l=10, r=10, t=10, b=10),
-        bargap=0.4,  # controls row spacing
-        plot_bgcolor="white",
-
-        # Bottom axis with monthly ticks
-        xaxis=dict(
-            dtick="M1",               # tick every month
-            tickformat="%b %Y",       # e.g. Jan 2025
-            showgrid=True,
-            gridcolor="rgba(180,180,180,0.6)",
-            gridwidth=1,
-            fixedrange=False,
-        ),
-
-        # Top axis (mirror) with same monthly ticks
-        xaxis2=dict(
-            overlaying="x",
-            side="top",
-            dtick="M1",
-            tickformat="%b %Y",
-            showgrid=False,
-        ),
-    )
-
-    return fig
-
-
-
-    # Scale height automatically
-    row_height = 40
-    chart_height = max(600, len(g) * row_height)
-
-    fig.update_layout(
-        height=chart_height,
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(rangeslider=dict(visible=True)),
-    )
-    return fig
+    return chart
 
 
 # ===================
 # UI
 # ===================
-st.set_page_config(page_title="Calls Explorer", layout="wide")
-st.title("Calls Explorer (Gantt + Filters)")
+st.set_page_config(page_title="Calls Explorer (Altair)", layout="wide")
+st.title("Calls Explorer (Altair Gantt + Filters)")
 
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
 if not upl:
@@ -212,49 +147,10 @@ types = st.sidebar.multiselect("Type of Action", options=type_opts)
 trls = st.sidebar.multiselect("TRL", options=trl_opts)
 dests = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
 
-# Budget slider (robust)
-bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
-if bud_series.empty:
-    min_bud, max_bud = 0.0, 1_000_000.0
-else:
-    min_bud, max_bud = float(bud_series.min()), float(bud_series.max())
-    if not (min_bud < max_bud):
-        min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
-
-budget_range = st.sidebar.slider(
-    "Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0
-)
-
-# Dates (robust)
-def safe_bounds(series, fallback_start="2000-01-01", fallback_end="2100-12-31"):
-    s = pd.to_datetime(series, errors="coerce").dropna()
-    if s.empty:
-        return (pd.to_datetime(fallback_start).date(), pd.to_datetime(fallback_end).date())
-    lo, hi = s.min().date(), s.max().date()
-    if lo == hi:
-        hi = (pd.to_datetime(hi) + pd.Timedelta(days=1)).date()
-    return lo, hi
-
-open_lo, open_hi = safe_bounds(df.get("opening_date"))
-dead_lo, dead_hi = safe_bounds(df.get("deadline"))
-
-col_open1, col_open2 = st.sidebar.columns(2)
-with col_open1:
-    open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-with col_open2:
-    open_end = st.date_input("Open to", value=open_hi, min_value=open_lo, max_value=open_hi)
-
-col_dead1, col_dead2 = st.sidebar.columns(2)
-with col_dead1:
-    dead_start = st.date_input("Deadline from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-with col_dead2:
-    dead_end = st.date_input("Deadline to", value=dead_hi, min_value=dead_lo, max_value=dead_hi)
-
-# Keyword search
 st.sidebar.header("Search")
 keyword = st.sidebar.text_input("Keyword (searches all columns)")
 
-# Apply search and filters
+# Apply filters
 df_kw = keyword_filter(df, keyword)
 
 filtered = df_kw.copy()
@@ -270,17 +166,6 @@ if trls:
 if dests:
     filtered = filtered[filtered["destination_or_strand"].isin(dests)]
 
-filtered = filtered[
-    (filtered["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
-    (filtered["budget_per_project_eur"].fillna(0) <= budget_range[1])
-]
-filtered = filtered[
-    (filtered["opening_date"] >= pd.to_datetime(open_start)) &
-    (filtered["opening_date"] <= pd.to_datetime(open_end)) &
-    (filtered["deadline"] >= pd.to_datetime(dead_start)) &
-    (filtered["deadline"] <= pd.to_datetime(dead_end))
-]
-
 st.markdown(f"**Showing {len(filtered)} rows** after filters/search.")
 
 # Tabs
@@ -288,11 +173,11 @@ tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
 
 with tab1:
     st.subheader("Gantt (Opening → Deadline)")
-    fig = make_gantt(filtered)
-    if fig is None:
+    chart = make_gantt_altair(filtered)
+    if chart is None:
         st.info("No rows with valid Opening/Deadline")
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.altair_chart(chart, use_container_width=True)
 
 with tab2:
     st.subheader("Filtered table")
