@@ -125,7 +125,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         two_stage = bool(r.get("two_stage"))
 
         # A short, 2-line label for in-bar annotation (title only)
-        title_inbar = wrap_label(title, width=26, max_lines=2)
+        title_inbar = wrap_label(title, width=26, max_lines=3)
 
         if two_stage:
             # Segment A: Opening -> First
@@ -148,7 +148,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
                     "y_label": y_label, "programme": prog,
                     "start": first_dt, "end": segB_end,
                     "segment": "Stage 2",
-                    "title": title, "title_inbar": title_inbar,
+                    "title": title,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "bar_days": bar_days,
                     "mid": first_dt + (segB_end - first_dt)/2,
@@ -254,7 +254,6 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         x2=alt.X2("end:T"),
         tooltip=[
             alt.Tooltip("title:N", title="Title"),
-            alt.Tooltip("segment:N", title="Segment"),
             alt.Tooltip("programme:N", title="Programme"),
             alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
             alt.Tooltip("start:T", title="Start", format="%d %b %Y"),
