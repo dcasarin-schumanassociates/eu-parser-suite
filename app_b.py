@@ -182,8 +182,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     # Stable y order and sizes
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 50  # larger for wrapped labels
-    chart_height = max(560, unique_rows * row_height)
+    row_height = 30  # larger for wrapped labels
+    chart_height = max(1080, unique_rows * row_height)
 
     # Persistent domain
     domain_min = pd.to_datetime(view_start)
@@ -235,7 +235,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=8000,
                 labelFontSize=14,
                 labelAlign="left",
-                labelPadding=8
+                labelPadding=20
             )
         ),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
