@@ -235,7 +235,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=8000,
                 labelFontSize=16,
                 labelAlign="right",
-                labelPadding=4,
+                labelPadding=20,
                 domain=True,          # <--- force draw vertical line
                 ticks=False           # optional, removes little tick marks
             )
@@ -278,9 +278,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
     
     inbar = base.mark_text(
-        align="left",
+        align="right",
         baseline="middle",
-        fontSize=16,
+        fontSize=13,
         fill="white",             # white font
         stroke=None               # remove outline (or set stroke="black" if you want a thin outline)
     ).encode(
