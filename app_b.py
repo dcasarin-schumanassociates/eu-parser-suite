@@ -1,3 +1,4 @@
+# app_b_topfilters.py — Altair Gantt (filters on top)
 from __future__ import annotations
 import io
 import pandas as pd
@@ -85,6 +86,7 @@ def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
         rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
     return pd.DataFrame(rows)
 
+# -------- Multi-keyword search --------
 def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
     terms = [t.strip().lower() for t in terms if t and t.strip()]
     if not terms:
@@ -100,6 +102,7 @@ def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_co
         combined = (combined & m) if mode == "AND" else (combined | m)
     return df[combined]
 
+# -------- Build long-form segments --------
 def build_segments(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, r in df.iterrows():
@@ -117,35 +120,40 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
 
         if two_stage:
             if pd.notna(open_dt) and pd.notna(first_dt) and open_dt <= first_dt:
+                bar_days = (first_dt - open_dt).days
                 rows.append({
                     "y_label": y_label, "programme": prog,
                     "start": open_dt, "end": first_dt,
-                    "segment": "Stage 1", "title": title, "title_inbar": title_inbar,
+                    "segment": "Stage 1",
+                    "title": title, "title_inbar": title_inbar,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
-                    "bar_days": (first_dt - open_dt).days,
+                    "bar_days": bar_days,
                     "mid": open_dt + (first_dt - open_dt)/2,
                 })
             segB_end = second_dt if pd.notna(second_dt) else (final_dt if pd.notna(final_dt) else None)
             if pd.notna(first_dt) and pd.notna(segB_end) and first_dt <= segB_end:
+                bar_days = (segB_end - first_dt).days
                 rows.append({
                     "y_label": y_label, "programme": prog,
                     "start": first_dt, "end": segB_end,
-                    "segment": "Stage 2", "title": title,
+                    "segment": "Stage 2",
+                    "title": title,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
-                    "bar_days": (segB_end - first_dt).days,
+                    "bar_days": bar_days,
                     "mid": first_dt + (segB_end - first_dt)/2,
                 })
         else:
             if pd.notna(open_dt) and pd.notna(final_dt) and open_dt <= final_dt:
+                bar_days = (final_dt - open_dt).days
                 rows.append({
                     "y_label": y_label, "programme": prog,
                     "start": open_dt, "end": final_dt,
-                    "segment": "Single", "title": title, "title_inbar": title_inbar,
+                    "segment": "Single",
+                    "title": title, "title_inbar": title_inbar,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
-                    "bar_days": (final_dt - open_dt).days,
+                    "bar_days": bar_days,
                     "mid": open_dt + (final_dt - open_dt)/2,
                 })
-
     seg = pd.DataFrame(rows)
     if seg.empty:
         return seg
@@ -156,71 +164,64 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
 def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     if seg.empty:
         return None
-
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
     row_height = 50
     chart_height = max(560, unique_rows * row_height)
-
     domain_min = pd.to_datetime(view_start)
     domain_max = pd.to_datetime(view_end)
-
     min_x = min(seg["start"].min(), seg["end"].min())
     max_x = max(seg["start"].max(), seg["end"].max())
 
     bands_df = build_month_bands(min_x, max_x)
-    month_shade = alt.Chart(bands_df).mark_rect().encode(
-        x="start:T", x2="end:T",
-        opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]), legend=None),
-        color=alt.value("#000"),
+    month_shade = (
+        alt.Chart(bands_df)
+        .mark_rect()
+        .encode(
+            x=alt.X("start:T", axis=None),
+            x2=alt.X2("end:T"),
+            opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]), legend=None),
+            color=alt.value("#000"),
+        )
     )
-
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
-                           pd.Timestamp(max_x).to_period("M").end_time, freq="MS")
+                           pd.Timestamp(max_x).to_period("M").end_time,
+                           freq="MS")
     weeks = pd.date_range(pd.Timestamp(min_x).to_period("W-MON").start_time,
-                          pd.Timestamp(max_x).to_period("W-MON").start_time, freq="W-MON")
-
+                          pd.Timestamp(max_x).to_period("W-MON").start_time,
+                          freq="W-MON")
     month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#9AA0A6", strokeWidth=1.5).encode(x="t:T")
-    week_grid  = alt.Chart(pd.DataFrame({"t": weeks})).mark_rule(stroke="#E5E7EB", strokeWidth=1).encode(x="t:T")
+    week_grid = alt.Chart(pd.DataFrame({"t": weeks})).mark_rule(stroke="#E5E7EB", strokeWidth=1).encode(x="t:T")
 
     base = alt.Chart(seg).encode(
         y=alt.Y("y_label:N", sort=y_order,
-                axis=alt.Axis(title=None, labelLimit=12000,
-                              labelFontSize=14, labelAlign="left", labelPadding=20)),
+            axis=alt.Axis(title=None, labelLimit=8000, labelFontSize=14, labelAlign="left", labelPadding=8)),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
     )
-
     bars = base.mark_bar(cornerRadius=3).encode(
         x=alt.X("start:T", axis=alt.Axis(title=None, format="%b %Y", tickCount="month",
-                                         orient="top", labelFontSize=12, tickSize=6),
+                orient="top", labelFontSize=12, tickSize=6),
                 scale=alt.Scale(domain=[domain_min, domain_max])),
-        x2="end:T",
-        tooltip=["title:N","programme:N",
+        x2=alt.X2("end:T"),
+        tooltip=[alt.Tooltip("title:N", title="Title"),
+                 alt.Tooltip("programme:N", title="Programme"),
                  alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
                  alt.Tooltip("start:T", title="Start", format="%d %b %Y"),
-                 alt.Tooltip("end:T",   title="End",   format="%d %b %Y")],
+                 alt.Tooltip("end:T", title="End", format="%d %b %Y")]
     )
-
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111").encode(
         x="start:T", text=alt.Text("start:T", format="%d %b"))
-    end_labels   = base.mark_text(align="left", dx=4, dy=-8, fontSize=11, color="#111").encode(
+    end_labels = base.mark_text(align="left", dx=4, dy=-8, fontSize=11, color="#111").encode(
         x="end:T", text=alt.Text("end:T", format="%d %b"))
-
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     inbar = base.mark_text(align="center", baseline="middle", fontSize=12,
                            fill="white", stroke=None).encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
-        text="title_inbar:N", opacity=text_cond
+        text=alt.Text("title_inbar:N"), opacity=text_cond
     )
-
-    chart = (
-    (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)
-    .properties(height=chart_height, padding={"left": 280})  # <<< fix here
-    .configure_axis(grid=False)
-    .configure_view(strokeWidth=0)
-    .configure_axisY(labelLimit=12000)
-    .configure_axis(labelFontSize=14)
-    )
+    chart = (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)\
+        .properties(height=chart_height).configure_axis(grid=False).configure_view(strokeWidth=0)
+    return chart
 
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
@@ -235,30 +236,29 @@ sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
 raw = pd.read_excel(xls, sheet_name=sheet)
 df = canonicalise(raw)
 
-# ---------- Top filters form ----------
+# ----- Filters FORM on top -----
 with st.form("filters_form", clear_on_submit=False):
-    st.subheader("Filters")
+    st.header("Filters")
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        programmes = st.multiselect("Programme", sorted(df["programme"].dropna().unique().tolist()))
-    with col2:
-        clusters = st.multiselect("Cluster", sorted(df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist()))
-    with col3:
-        types = st.multiselect("Type of Action", sorted(df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist()))
-    with col4:
-        trls = st.multiselect("TRL", sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique()]))
+    prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
+    cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
+    type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
+    trl_opts     = sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
+    dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d != ""])
 
-    col5, col6, col7 = st.columns(3)
-    with col5:
-        dests = st.multiselect("Destination / Strand", sorted(df.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist()))
-    with col6:
-        kw1 = st.text_input("Keyword 1"); kw2 = st.text_input("Keyword 2"); kw3 = st.text_input("Keyword 3")
-    with col7:
-        combine_mode = st.radio("Combine", ["AND","OR"], horizontal=True, index=0)
-        title_code_only = st.checkbox("Search only in Title & Code", value=True)
+    programmes = st.multiselect("Programme", options=prog_opts, default=prog_opts)
+    clusters   = st.multiselect("Cluster", options=cluster_opts)
+    types      = st.multiselect("Type of Action", options=type_opts)
+    trls       = st.multiselect("TRL", options=trl_opts)
+    dests      = st.multiselect("Destination / Strand", options=dest_opts)
 
-    # Dates
+    st.subheader("Search (multi-keyword)")
+    kw1 = st.text_input("Keyword 1")
+    kw2 = st.text_input("Keyword 2")
+    kw3 = st.text_input("Keyword 3")
+    combine_mode = st.radio("Combine", ["AND", "OR"], horizontal=True, index=0)
+    title_code_only = st.checkbox("Search only in Title & Code", value=True)
+
     open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
     dead_all = pd.concat([
         pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -267,19 +267,17 @@ with st.form("filters_form", clear_on_submit=False):
     ], axis=0)
     dead_lo, dead_hi = safe_date_bounds(dead_all)
 
-    col8, col9 = st.columns(2)
-    with col8:
+    col1, col2 = st.columns(2)
+    with col1:
         open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-    with col9:
-        open_end = st.date_input("Open to", value=open_hi, min_value=open_lo, max_value=open_hi)
-
-    col10, col11 = st.columns(2)
-    with col10:
+    with col2:
+        open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
+    col3, col4 = st.columns(2)
+    with col3:
         close_from = st.date_input("Close from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-    with col11:
-        close_to = st.date_input("Close to", value=dead_hi, min_value=dead_lo, max_value=dead_hi)
+    with col4:
+        close_to   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
-    # Budget slider
     bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
     if bud_series.empty:
         min_bud, max_bud = 0.0, 1_000_000.0
@@ -289,58 +287,42 @@ with st.form("filters_form", clear_on_submit=False):
             min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
     budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
 
+    st.subheader("View window (persistent)")
+    if "view_start" not in st.session_state or "view_end" not in st.session_state:
+        data_min = min(
+            pd.to_datetime(df.get("opening_date"), errors="coerce").min(),
+            pd.to_datetime(df.get("deadline"), errors="coerce").min(),
+            pd.to_datetime(df.get("first_deadline"), errors="coerce").min(),
+            pd.to_datetime(df.get("second_deadline"), errors="coerce").min(),
+        )
+        data_max = max(
+            pd.to_datetime(df.get("opening_date"), errors="coerce").max(),
+            pd.to_datetime(df.get("deadline"), errors="coerce").max(),
+            pd.to_datetime(df.get("first_deadline"), errors="coerce").max(),
+            pd.to_datetime(df.get("second_deadline"), errors="coerce").max(),
+        )
+        pad = pd.Timedelta(days=30)
+        st.session_state.view_start = (data_min - pad).date() if pd.notna(data_min) else open_lo
+        st.session_state.view_end   = (data_max + pad).date() if pd.notna(data_max) else open_hi
+
+    view_start = st.date_input("View from", value=st.session_state.view_start)
+    view_end   = st.date_input("View to",   value=st.session_state.view_end)
+
     applied = st.form_submit_button("Apply filters")
 
-# ---------- Apply filters ----------
-f = df.copy()
-f = multi_keyword_filter(f, [kw1, kw2, kw3], combine_mode, title_code_only)
-if programmes: f = f[f["programme"].isin(programmes)]
-if clusters:   f = f[f["cluster"].isin(clusters)]
-if types:      f = f[f["type_of_action"].isin(types)]
-if trls:
-    trl_str = f["trl"].dropna().astype("Int64").astype(str)
-    f = f[trl_str.isin(trls)]
-if dests:      f = f[f["destination_or_strand"].isin(dests)]
+# ---- Persist criteria ----
+if "criteria" not in st.session_state:
+    st.session_state.criteria = {}
 
-f = f[(f["opening_date"] >= pd.to_datetime(open_start)) & (f["opening_date"] <= pd.to_datetime(open_end))]
+if applied:
+    st.session_state.criteria = dict(
+        programmes=programmes, clusters=clusters, types=types, trls=trls, dests=dests,
+        kw1=kw1, kw2=kw2, kw3=kw3, combine_mode=combine_mode, title_code_only=title_code_only,
+        open_start=open_start, open_end=open_end, close_from=close_from, close_to=close_to,
+        budget_range=budget_range, view_start=view_start, view_end=view_end
+    )
+    st.session_state.view_start = view_start
+    st.session_state.view_end   = view_end
 
-any_end_in = (
-    (pd.to_datetime(f.get("deadline"), errors="coerce").between(pd.to_datetime(close_from), pd.to_datetime(close_to), inclusive="both")) |
-    (pd.to_datetime(f.get("first_deadline"), errors="coerce").between(pd.to_datetime(close_from), pd.to_datetime(close_to), inclusive="both")) |
-    (pd.to_datetime(f.get("second_deadline"), errors="coerce").between(pd.to_datetime(close_from), pd.to_datetime(close_to), inclusive="both"))
-)
-f = f[any_end_in.fillna(False)]
-f = f[(f["budget_per_project_eur"].fillna(0) >= budget_range[0]) & (f["budget_per_project_eur"].fillna(0) <= budget_range[1])]
-
-st.markdown(f"**Showing {len(f)} rows** after filters.")
-
-# ---------- Tabs ----------
-tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
-
-with tab1:
-    st.subheader("Gantt (Opening → Stage 1 → Stage 2 / Final)")
-    segments = build_segments(f)
-    chart = build_altair_chart_from_segments(segments, view_start=open_start, view_end=close_to)
-    if chart is None:
-        st.info("No rows with valid dates to display.")
-    else:
-        st.altair_chart(chart, use_container_width=True)
-
-with tab2:
-    st.subheader("Filtered table")
-    show_cols = [c for c in DISPLAY_COLS if c in f.columns]
-    st.dataframe(f[show_cols], use_container_width=True, hide_index=True)
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as xw:
-        f.to_excel(xw, index=False, sheet_name="filtered")
-    out.seek(0)
-    st.download_button("⬇️ Download filtered (Excel)", out,
-                       file_name="calls_filtered.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-with tab3:
-    st.subheader("Full data (expand rows)")
-    for _, row in f.iterrows():
-        title = f"{row.get('code','')} — {row.get('title','')}"
-        with st.expander(title):
-            st.write(row.to_dict())
+# ---- Defaults if first run ----
+open_lo, open
