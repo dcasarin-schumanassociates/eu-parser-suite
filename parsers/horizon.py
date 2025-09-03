@@ -179,7 +179,7 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         "destination": None
     }
 
-    topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):")
+    topic_pattern = re.compile(r"^(HORIZON-[A-Za-z0-9\-]+):")
     collecting = False
     for line in lines:
         lower = line.lower()
