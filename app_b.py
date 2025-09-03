@@ -1,19 +1,13 @@
-# app_b_frappe.py
 from __future__ import annotations
 import io
+import json
 import pandas as pd
 import streamlit as st
 from dateutil import tz
-import streamlit_frappe_gantt
+import altair as alt
+import streamlit.components.v1 as components
 
-# Frappe Gantt component
-try:
-    from streamlit_frappe_gantt import gantt
-except Exception as e:
-    st.error("Missing dependency: install with `pip install streamlit-frappe-gantt`")
-    raise
-
-# ========== Config / column mapping ==========
+# ===== Column mapping (same as before) =====
 COLUMN_MAP = {
     "Code": "code",
     "Title": "title",
@@ -33,40 +27,28 @@ COLUMN_MAP = {
     "Version Label": "version_label",
 }
 DISPLAY_COLS = [
-    "programme", "cluster", "code", "title",
-    "opening_date", "deadline",
-    "budget_per_project_eur", "total_budget_eur",
-    "type_of_action", "trl", "destination_or_strand",
-    "call_name", "version_label", "source_filename",
+    "programme","cluster","code","title",
+    "opening_date","deadline",
+    "budget_per_project_eur","total_budget_eur",
+    "type_of_action","trl","destination_or_strand",
+    "call_name","version_label","source_filename",
 ]
 LOCAL_TZ = tz.gettz("Europe/Brussels")
 
-# Nice colours per programme (used via CSS classes)
-PROGRAMME_COLOURS = {
-    "Horizon Europe": "#3b82f6",  # blue-500
-    "Digital Europe": "#22c55e",  # green-500
-    "Erasmus+": "#f59e0b",        # amber-500
-}
-
-# ========== Helpers ==========
+# ===== Helpers =====
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
-    # rename known headers
     for src, dst in COLUMN_MAP.items():
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
-    # lower-case remaining
     df = df.rename(columns={c: c.strip().lower() for c in df.columns})
-
     if "programme" not in df.columns:
         df["programme"] = "Horizon Europe"
     if "cluster" not in df.columns:
         df["cluster"] = pd.NA
-
-    # types
-    for c in ("opening_date", "deadline"):
+    for c in ("opening_date","deadline"):
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
-    for c in ("budget_per_project_eur", "total_budget_eur", "trl"):
+    for c in ("budget_per_project_eur","total_budget_eur","trl"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
@@ -77,40 +59,6 @@ def keyword_filter(df: pd.DataFrame, term: str) -> pd.DataFrame:
         return df
     return df[df.apply(lambda r: r.astype(str).str.lower().str.contains(term).any(), axis=1)]
 
-def filtered_df(df: pd.DataFrame,
-                programmes, clusters, types, trls, dests,
-                open_start, open_end, dead_start, dead_end,
-                budget_range) -> pd.DataFrame:
-    out = df.copy()
-    if programmes:
-        out = out[out["programme"].isin(programmes)]
-    if clusters:
-        out = out[out["cluster"].isin(clusters)]
-    if types:
-        out = out[out["type_of_action"].isin(types)]
-    if trls:
-        trl_str = out["trl"].dropna().astype("Int64").astype(str)
-        out = out[trl_str.isin(trls)]
-    if dests:
-        out = out[out["destination_or_strand"].isin(dests)]
-
-    # budgets
-    lo, hi = budget_range
-    if "budget_per_project_eur" in out.columns:
-        out = out[
-            (out["budget_per_project_eur"].fillna(0) >= lo) &
-            (out["budget_per_project_eur"].fillna(0) <= hi)
-        ]
-
-    # dates (guard NaT)
-    if pd.notna(open_start) and pd.notna(open_end):
-        out = out[(out["opening_date"] >= pd.to_datetime(open_start)) &
-                  (out["opening_date"] <= pd.to_datetime(open_end))]
-    if pd.notna(dead_start) and pd.notna(dead_end):
-        out = out[(out["deadline"] >= pd.to_datetime(dead_start)) &
-                  (out["deadline"] <= pd.to_datetime(dead_end))]
-    return out
-
 def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
     s = pd.to_datetime(series, errors="coerce").dropna()
     if s.empty:
@@ -120,20 +68,17 @@ def safe_date_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
         hi = (pd.to_datetime(hi) + pd.Timedelta(days=1)).date()
     return lo, hi
 
-def build_tasks(df: pd.DataFrame) -> list[dict]:
-    """Convert rows to Frappe Gantt tasks."""
+def build_frappe_tasks(df: pd.DataFrame) -> list[dict]:
     tasks = []
-    for i, r in df.dropna(subset=["opening_date", "deadline"]).iterrows():
-        pid = (r.get("programme") or "").strip()
-        css = (pid if pid in PROGRAMME_COLOURS else "default").replace(" ", "-").lower()
+    for i, r in df.dropna(subset=["opening_date","deadline"]).iterrows():
         tasks.append({
             "id": str(r.get("code") or f"row-{i}"),
             "name": f"{(r.get('code') or '')} — {(r.get('title') or '')}",
             "start": r["opening_date"].date().isoformat(),
             "end": r["deadline"].date().isoformat(),
-            "progress": 100,  # static; treat as published window
-            "custom_class": css,
-            "details": {  # show in popup
+            "progress": 100,
+            "custom_class": (r.get("programme") or "default").replace(" ", "-").lower(),
+            "details": {
                 "Title": r.get("title") or "",
                 "Type": r.get("type_of_action") or "",
                 "Budget (€)": f"{int(r.get('budget_per_project_eur') or 0):,}",
@@ -145,43 +90,92 @@ def build_tasks(df: pd.DataFrame) -> list[dict]:
         })
     return tasks
 
-def tasks_to_html(tasks: list[dict]) -> list[dict]:
-    """Frappe’s built-in popup is basic. We’ll render a nicer HTML in the name."""
-    out = []
-    for t in tasks:
-        name_html = (
-            f"<b>{t['name']}</b>"
-        )
-        t2 = dict(t)
-        t2["name"] = name_html
-        out.append(t2)
-    return out
-
-# Inject CSS for nicer visuals (row height, colours, grid)
-def inject_css():
-    palette = []
-    for prog, color in PROGRAMME_COLOURS.items():
-        klass = prog.replace(" ", "-").lower()
-        palette.append(f".bar-wrapper .bar.{klass} {{ fill: {color}; }}")
-        palette.append(f".handle.{klass} {{ stroke: {color}; }}")
-    css = f"""
+def render_frappe_gantt(tasks: list[dict], view_mode: str = "Month", height_px: int = 600):
+    # CDN HTML block. We pass `tasks` JSON and build chart client-side.
+    tasks_json = json.dumps(tasks)
+    html = f"""
+    <div id="gantt" class="gantt-container" style="width:100%; overflow-x:auto;"></div>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.css">
+    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.min.js"></script>
     <style>
-      .gantt-container {{ overflow-x: auto; }}
-      .gantt .bar .bar-rect {{ rx: 4px; ry: 4px; }}
-      .gantt .bar {{ height: 22px; }}             /* bar height (row thickness) */
-      .gantt .bar-group {{ margin-bottom: 10px; }}/* vertical spacing */
-      .gantt .grid .row.lines .line {{ stroke: #e5e7eb; stroke-width: 1; }} /* grid lines */
-      .gantt .grid .tick {{ stroke: #cbd5e1; }}   /* calendar ticks */
-      .gantt text {{ font-size: 12px; fill: #111827; }}
+      .bar {{ height: 22px; }}
+      .bar-wrapper {{ margin-bottom: 10px; }}
+      .grid .row.lines .line {{ stroke: #e5e7eb; stroke-width: 1; }}
+      .grid .tick {{ stroke: #cbd5e1; }}
       .popup-wrapper {{ max-width: 420px; }}
-      .popup-wrapper .pointer.month, .popup-wrapper .pointer {{ display: none; }}
-      {''.join(palette)}
     </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
+    <script>
+      const tasks = {tasks_json};
+      const el = document.getElementById('gantt');
+      el.style.height = '{height_px}px';
 
-# ========== UI ==========
-st.set_page_config(page_title="Calls Explorer (Frappe Gantt)", layout="wide")
+      // Map programme class -> color (set SVG style dynamically)
+      const colorMap = {{
+        "horizon-europe": "#3b82f6",
+        "digital-europe": "#22c55e",
+        "erasmus+": "#f59e0b",
+        "default": "#64748b"
+      }};
+
+      const gantt = new Gantt(el, tasks, {{
+        view_mode: "{view_mode}",
+        custom_popup_html: function(task) {{
+          const d = task.details || {{}};
+          return `
+            <div class="details-container">
+              <h5 style="margin:0 0 6px 0;">${{task.name}}</h5>
+              <div><b>Type:</b> ${{d["Type"] || ""}}</div>
+              <div><b>Budget (€):</b> ${{d["Budget (€)"] || ""}}</div>
+              <div><b>Open → Close:</b> ${{d["Open"] || ""}} → ${{d["Close"] || ""}}</div>
+              <div><b>Cluster/Strand:</b> ${{d["Cluster/Strand"] || ""}}</div>
+              <div><b>Version:</b> ${{d["Version"] || ""}}</div>
+            </div>`;
+        }}
+      }});
+
+      // Apply colors
+      setTimeout(() => {{
+        document.querySelectorAll('.bar').forEach(bar => {{
+          const klass = Array.from(bar.classList).find(c => colorMap[c]);
+          const color = colorMap[klass] || colorMap.default;
+          bar.style.fill = color;
+        }});
+      }}, 0);
+    </script>
+    """
+    components.html(html, height=height_px + 40, scrolling=True)
+
+def make_gantt_altair(df: pd.DataFrame):
+    g = df.dropna(subset=["opening_date","deadline","title"]).copy()
+    if g.empty:
+        return None
+    g["title_wrapped"] = (g["code"].fillna("").astype(str) + " — " + g["title"].astype(str))\
+                         .str.replace(r"(.{50})", r"\\n\\1", regex=True)
+    row_h = 28
+    h = max(400, len(g) * row_h)
+    base = alt.Chart(g).encode(
+        y=alt.Y("title_wrapped:N", sort='-x', axis=alt.Axis(title=None, labelLimit=300)),
+        color=alt.Color("programme:N", legend=None)
+    )
+    bars = base.mark_bar(cornerRadius=3).encode(
+        x=alt.X("opening_date:T", axis=alt.Axis(title=None, format="%b %Y", tickCount="month")),
+        x2="deadline:T",
+        tooltip=[
+            alt.Tooltip("title:N", title="Title"),
+            alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
+            alt.Tooltip("type_of_action:N", title="Type"),
+            alt.Tooltip("opening_date:T", title="Open", format="%d %b %Y"),
+            alt.Tooltip("deadline:T", title="Close", format="%d %b %Y"),
+        ],
+    )
+    months = pd.date_range(g["opening_date"].min().floor("D"),
+                           g["deadline"].max().ceil("D"),
+                           freq="MS")
+    grid = alt.Chart(pd.DataFrame({"m": months})).mark_rule(stroke="#DDD").encode(x="m:T")
+    return (grid + bars).properties(height=h).configure_axis(grid=False).configure_view(strokeWidth=0)
+
+# ===== UI =====
+st.set_page_config(page_title="Calls Explorer (Frappe via CDN)", layout="wide")
 st.title("Calls Explorer (Frappe Gantt + Filters)")
 
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
@@ -193,13 +187,13 @@ sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
 raw = pd.read_excel(xls, sheet_name=sheet)
 df = canonicalise(raw)
 
-# Sidebar filters
+# Filters
 st.sidebar.header("Filters")
-prog_opts = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
-cluster_opts = sorted([c for c in df["cluster"].dropna().unique().tolist() if pd.notna(c)])
-type_opts = sorted([t for t in df["type_of_action"].dropna().unique().tolist() if pd.notna(t)])
-trl_opts = sorted([str(int(x)) for x in df["trl"].dropna().unique() if pd.notna(x)])
-dest_opts = sorted([d for d in df["destination_or_strand"].dropna().unique().tolist() if pd.notna(d)])
+prog_opts   = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
+cluster_opts= sorted([c for c in df["cluster"].dropna().unique().tolist() if pd.notna(c)])
+type_opts   = sorted([t for t in df["type_of_action"].dropna().unique().tolist() if pd.notna(t)])
+trl_opts    = sorted([str(int(x)) for x in df["trl"].dropna().unique() if pd.notna(x)])
+dest_opts   = sorted([d for d in df["destination_or_strand"].dropna().unique().tolist() if pd.notna(d)])
 
 programmes = st.sidebar.multiselect("Programme", options=prog_opts, default=prog_opts)
 clusters   = st.sidebar.multiselect("Cluster / Strand", options=cluster_opts)
@@ -207,23 +201,19 @@ types      = st.sidebar.multiselect("Type of Action", options=type_opts)
 trls       = st.sidebar.multiselect("TRL", options=trl_opts)
 dests      = st.sidebar.multiselect("Destination / Strand", options=dest_opts)
 
-# Date bounds
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
 dead_lo, dead_hi = safe_date_bounds(df.get("deadline"))
-
-col_open1, col_open2 = st.sidebar.columns(2)
-with col_open1:
+col_o1, col_o2 = st.sidebar.columns(2)
+with col_o1:
     open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-with col_open2:
+with col_o2:
     open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
-
-col_dead1, col_dead2 = st.sidebar.columns(2)
-with col_dead1:
+col_d1, col_d2 = st.sidebar.columns(2)
+with col_d1:
     dead_start = st.date_input("Deadline from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-with col_dead2:
+with col_d2:
     dead_end   = st.date_input("Deadline to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
-# Budget slider (robust)
 bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
 if bud_series.empty:
     min_bud, max_bud = 0.0, 1_000_000.0
@@ -231,56 +221,61 @@ else:
     min_bud, max_bud = float(bud_series.min()), float(bud_series.max())
     if not (min_bud < max_bud):
         min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
-
 budget_range = st.sidebar.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
 
-# Keyword search
 st.sidebar.header("Search")
 keyword = st.sidebar.text_input("Keyword (searches all columns)")
 
-# View mode
-st.sidebar.header("View")
-view_mode = st.sidebar.selectbox("Gantt scale", options=["Month", "Week", "Day"], index=0)
-row_px = st.sidebar.slider("Row height (px)", 20, 60, 28)
-
 # Apply filters
 df_kw = keyword_filter(df, keyword)
-filtered = filtered_df(
-    df_kw, programmes, clusters, types, trls, dests,
-    open_start, open_end, dead_start, dead_end, budget_range
-)
+f = df_kw.copy()
+if programmes: f = f[f["programme"].isin(programmes)]
+if clusters:   f = f[f["cluster"].isin(clusters)]
+if types:      f = f[f["type_of_action"].isin(types)]
+if trls:
+    trl_str = f["trl"].dropna().astype("Int64").astype(str)
+    f = f[trl_str.isin(trls)]
+if dests:      f = f[f["destination_or_strand"].isin(dests)]
 
-st.markdown(f"**Showing {len(filtered)} rows** after filters/search.")
+f = f[
+    (f["opening_date"] >= pd.to_datetime(open_start)) &
+    (f["opening_date"] <= pd.to_datetime(open_end)) &
+    (f["deadline"] >= pd.to_datetime(dead_start)) &
+    (f["deadline"] <= pd.to_datetime(dead_end))
+]
+f = f[
+    (f["budget_per_project_eur"].fillna(0) >= budget_range[0]) &
+    (f["budget_per_project_eur"].fillna(0) <= budget_range[1])
+]
+
+st.markdown(f"**Showing {len(f)} rows** after filters/search.")
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
 
 with tab1:
     st.subheader("Gantt (Opening → Deadline)")
-    inject_css()
-
-    tasks = build_tasks(filtered)
-
-    # Height scales with number of tasks and chosen row height
-    chart_height = max(360, int(len(tasks) * (row_px + 10)))
-
-    # Render the Gantt
-    gantt(
-        tasks=tasks_to_html(tasks),
-        height=chart_height,
-        title="Calls Timeline",
-        show_popup=True,
-        view_mode=view_mode,        # "Day" | "Week" | "Month"
-        date_format="YYYY-MM-DD"    # Frappe expects ISO strings
-    )
+    tasks = build_frappe_tasks(f)
+    if not tasks:
+        st.info("No rows with valid Opening/Deadline")
+    else:
+        # Controls
+        colA, colB = st.columns([1,1])
+        with colA:
+            view_mode = st.selectbox("Scale", ["Month","Week","Day"], index=0)
+        with colB:
+            row_px = st.slider("Row height (px)", 20, 60, 28)
+        chart_h = max(360, int(len(tasks) * (row_px + 10)))
+        # Render via CDN
+        render_frappe_gantt(tasks, view_mode=view_mode, height_px=chart_h)
 
 with tab2:
     st.subheader("Filtered table")
-    show_cols = [c for c in DISPLAY_COLS if c in filtered.columns]
-    st.dataframe(filtered[show_cols], use_container_width=True, hide_index=True)
+    show_cols = [c for c in DISPLAY_COLS if c in f.columns]
+    st.dataframe(f[show_cols], use_container_width=True, hide_index=True)
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as xw:
-        filtered.to_excel(xw, index=False, sheet_name="filtered")
+        f.to_excel(xw, index=False, sheet_name="filtered")
     out.seek(0)
     st.download_button("⬇️ Download filtered (Excel)", out,
                        file_name="calls_filtered.xlsx",
@@ -288,7 +283,7 @@ with tab2:
 
 with tab3:
     st.subheader("Full data (expand rows)")
-    for _, row in filtered.iterrows():
+    for _, row in f.iterrows():
         title = f"{row.get('code','')} — {row.get('title','')}"
         with st.expander(title):
             st.write(row.to_dict())
