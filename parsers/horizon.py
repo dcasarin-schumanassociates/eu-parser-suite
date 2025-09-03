@@ -202,6 +202,7 @@ def parse_two_stage_deadlines(line: str) -> Dict[str, str]:
 #   - Adds optional two-stage dates guarded by code containing '-two-stage'
 #   - Adds boolean is_two_stage
 # =============================================================================
+
 def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
     lines = normalize_text(text).splitlines()
 
@@ -215,19 +216,20 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
         "is_two_stage": False,     # boolean flag
     }
 
-    # Case-insensitive: codes can contain lowercase (e.g. ...-two-stage)
     topic_pattern = re.compile(r"^(HORIZON-[A-Z0-9\-]+):", re.IGNORECASE)
     collecting = False
 
-    for raw_line in lines:
-        # >>> Minimal fix: strip leading/trailing spaces per line <<<
-        line = raw_line.strip()
+    for idx, raw in enumerate(lines):
+        line = raw.strip()
         lower = line.lower()
 
+        next_raw = lines[idx + 1] if idx + 1 < len(lines) else ""
+        next_line = next_raw.strip()
+        line_plus_next = f"{line} {next_line}".strip()
+
         if lower.startswith("opening:"):
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line) or re.search(r"(\d{1,2} \w+ \d{4})", next_line)
             current_metadata["opening_date"] = m.group(1) if m else None
-            # reset per-call metadata
             current_metadata["deadline"] = None
             current_metadata["deadline_stage1"] = None
             current_metadata["deadline_stage2"] = None
@@ -236,26 +238,23 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
             collecting = True
 
         elif collecting and lower.startswith("deadline"):
-            # KEEP: original single-date detection (unchanged)
-            m = re.search(r"(\d{1,2} \w+ \d{4})", line)
+            # original single-date detection (unchanged), with next-line fallback
+            m = re.search(r"(\d{1,2} \w+ \d{4})", line) or re.search(r"(\d{1,2} \w+ \d{4})", next_line)
             current_metadata["deadline"] = m.group(1) if m else None
 
-            # Additional two-stage parse attempt on the same line
-            extra = parse_two_stage_deadlines(line)
+            # two-stage (if present on wrapped line)
+            extra = parse_two_stage_deadlines(line_plus_next)
             if extra:
                 current_metadata.update(extra)
-                # boolean is set when we attach to a specific topic code
 
         elif collecting and lower.startswith("destination"):
             current_metadata["destination"] = line.split(":", 1)[-1].strip()
 
         elif collecting:
-            match = topic_pattern.match(line)  # use stripped line here too
+            match = topic_pattern.match(line)
             if match:
                 code = match.group(1)
                 to_save = current_metadata.copy()
-
-                # Only attach two-stage data to '-two-stage' topics
                 if "-two-stage" in code.lower():
                     to_save["is_two_stage"] = bool(
                         to_save.get("deadline_stage1") and to_save.get("deadline_stage2")
@@ -264,10 +263,10 @@ def extract_metadata_blocks(text: str) -> Dict[str, Dict[str, Any]]:
                     to_save["is_two_stage"] = False
                     to_save["deadline_stage1"] = None
                     to_save["deadline_stage2"] = None
-
                 metadata_map[code] = to_save
 
     return metadata_map
+
 
 
 # =============================================================================
