@@ -241,7 +241,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                            orient="top", labelFontSize=11, tickSize=6),
              scale=alt.Scale(domain=[domain_min, domain_max])),
          x2=alt.X2("end:T"),
-         color=alt.Color("type_of_action:N", legend=alt.Legend(title="Type of Action"))
+         color=alt.Color("type_of_action:N", legend=alt.Legend(title="Type of Action")),
          opacity=alt.condition(
              alt.datum.segment == "Stage 2",
              alt.value(0.7),  # Stage 2 slightly darker
