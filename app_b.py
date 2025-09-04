@@ -345,7 +345,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=10, color="#111")\
                        .encode(x="end:T", text=alt.Text("end:T", format="%d %b %Y"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
-    inbar = base.mark_text(align="center", baseline="middle", fontSize=10, fill="white").encode(
+    inbar = base.mark_text(align="left", baseline="middle", fontSize=10, fill="white").encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         text=alt.Text("title_inbar:N"),
         opacity=text_cond
@@ -354,9 +354,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     chart = (
         month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels
     ).properties(
-        height=chart_height, width=4000
+        height=chart_height, width=5000
     ).configure_axis(
-        grid=False
+        grid=True
     ).configure_view(
         strokeWidth=0
     ).resolve_scale(
