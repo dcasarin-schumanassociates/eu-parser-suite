@@ -293,7 +293,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=500,
                 labelFontSize=11,
                 labelAlign="right",
-                labelPadding=50,
+                labelPadding=80,
                 domain=True,                             
             ),
             scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)))   
@@ -307,7 +307,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=500,
                 labelFontSize=13,
                 labelAlign="right",
-                labelPadding=50,
+                labelPadding=80,
                 domain=True
             ),
             scale=alt.Scale(domain=y_order)   # only band, no domain
@@ -320,7 +320,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 tickCount="month",
                 orient="bottom",      # 👈 force top
                 labelFontSize=11,
-                labelPadding=50,   # 👈 extra room for labels
+                labelPadding=80,   # 👈 extra room for labels
                 labelOverlap="greedy",   # <— allow Vega to hide some labels
                 tickSize=6
             ),
@@ -365,7 +365,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                            baseline="middle",
                            dx=2,
                            dy=-15,
-                           fontSize=10, 
+                           fontSize=12, 
                            fill="black").encode(
         x=alt.X("start:T",
                 scale=alt.Scale(domain=[domain_min, domain_max]),
