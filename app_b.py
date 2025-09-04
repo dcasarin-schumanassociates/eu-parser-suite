@@ -611,7 +611,7 @@ with tab3:
             # --- Expandable long text sections with bullet normalization + highlights
             if row.get("expected_outcome"):
                 with st.expander("🎯 Expected Outcome"):
-                    clean_text = normalize_bullets(clean_footer(row.get("expected_outcome")))
+                    clean_text = clean_footer(normalize_bullets(row.get("expected_outcome")))
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
@@ -619,7 +619,7 @@ with tab3:
 
             if row.get("scope"):
                 with st.expander("🧭 Scope"):
-                    clean_text = normalize_bullets(clean_footer(row.get("scope")))
+                    clean_text = clean_footer(normalize_bullets(row.get("scope")))
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
@@ -627,7 +627,7 @@ with tab3:
 
             if row.get("full_text"):
                 with st.expander("📖 Full Description"):
-                    clean_text = normalize_bullets(clean_footer(row.get("full_text")))
+                    clean_text = clean_footer(normalize_bullets(row.get("full_text")))
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
