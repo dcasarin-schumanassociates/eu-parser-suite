@@ -40,9 +40,8 @@ DISPLAY_COLS = [
 
 # ---------- Helpers ----------
 
-import re
-
-import re
+def nl_to_br(s: str) -> str:
+    return "" if not s else s.replace("\n", "<br>")
 
 def clean_footer(text: str) -> str:
     """
@@ -612,25 +611,29 @@ with tab3:
             )
 
             # --- Expandable long text sections with bullet normalization + highlights
+
             if row.get("expected_outcome"):
                 with st.expander("🎯 Expected Outcome"):
-                    clean_text = clean_footer(normalize_bullets(row.get("expected_outcome")))
+                    clean_text = normalize_bullets(clean_footer(row.get("expected_outcome")))
+                    clean_text = nl_to_br(clean_text)  # turn \n into <br> for HTML rendering
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
                     )
-
+            
             if row.get("scope"):
                 with st.expander("🧭 Scope"):
-                    clean_text = clean_footer(normalize_bullets(row.get("scope")))
+                    clean_text = normalize_bullets(clean_footer(row.get("scope")))
+                    clean_text = nl_to_br(clean_text)
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
                     )
-
+            
             if row.get("full_text"):
                 with st.expander("📖 Full Description"):
-                    clean_text = clean_footer(normalize_bullets(row.get("full_text")))
+                    clean_text = normalize_bullets(clean_footer(row.get("full_text")))
+                    clean_text = nl_to_br(clean_text)
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
