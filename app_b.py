@@ -341,14 +341,14 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
    
     start_labels = base.mark_text(align="right",
                                   dx=-4,
-                                  dy=-15,
+                                  dy=15,
                                   fontSize=10,
                                   color="#111")\
                        .encode(x="start:T",
                                text=alt.Text("start:T", format="%d %b %Y"))
     end_labels   = base.mark_text(align="left",
                                   dx=4,
-                                  dy=-15,
+                                  dy=15,
                                   fontSize=10,
                                   color="#111")\
                        .encode(x="end:T",
