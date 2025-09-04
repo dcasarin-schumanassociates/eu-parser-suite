@@ -329,7 +329,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
 
-st.image("logo.png", width=250)  # fixed width
+st.markdown(
+    "<div style='text-align: center;'><img src='logo.png' width='200'></div>",
+    unsafe_allow_html=True
+)
 
 st.title("Calls Explorer — Gantt (two-stage + in-bar titles)")
 
