@@ -573,7 +573,6 @@ with tab1:
                 overflow-x: auto;
                 overflow-y: auto;
                 height: 10px;   /* adjust height as needed */
-                border: 1px solid #ddd;
                 padding: 5px;
             }
             </style>
