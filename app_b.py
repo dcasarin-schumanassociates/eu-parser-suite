@@ -286,7 +286,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         opacity=alt.condition(
             alt.datum.segment == "Stage 2",
             alt.value(0.7),  # Stage 2 slightly darker
-            alt.value(0.5)   # Stage 1/Single full colour
+            alt.value(1.0)   # Stage 1/Single full colour
         ),
         tooltip=[
             alt.Tooltip("title:N", title="Title"),
