@@ -311,7 +311,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     chart = (
         month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels
     ).properties(
-        height=chart_height, width=4000
+        height=chart_height, width=2500
     ).configure_axis(
         grid=False
     ).configure_view(
