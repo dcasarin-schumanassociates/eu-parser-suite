@@ -135,7 +135,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
     for _, r in df.iterrows():
         code = str(r.get("code") or "")
         title = str(r.get("title") or "")
-        y_label = wrap_label(f"{title}", width=36, max_lines=3)
+        y_label = wrap_label(f"{title}", width=100, max_lines=5)
 
         prog = r.get("programme")
         open_dt   = r.get("opening_date")
