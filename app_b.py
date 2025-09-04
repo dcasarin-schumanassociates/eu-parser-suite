@@ -308,8 +308,8 @@ sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
 raw = pd.read_excel(xls, sheet_name=sheet)
 df = canonicalise(raw)
 
-# ----- Sidebar: APPLY form -----
-with st.sidebar.form("filters_form", clear_on_submit=False):
+# ----- Top: APPLY form (moved from sidebar) -----
+with st.form("filters_form", clear_on_submit=False):
     st.header("Filters")
 
     prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
