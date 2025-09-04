@@ -229,7 +229,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=100000,
                 labelFontSize=11,
                 labelAlign="right",
-                labelPadding=250,
+                labelPadding=100,
                 domain=True,                             
             )
         )
@@ -252,12 +252,16 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         x=alt.X(
             "start:T",
             axis=alt.Axis(
-                title=None, format="%b %Y", tickCount="month",
-                orient="top", labelFontSize=11, tickSize=6
+                title=None,
+                format="%b %Y",    # 👈 month + year
+                tickCount="month",
+                orient="top",      # 👈 force top
+                labelFontSize=11,
+                tickSize=6
             ),
             scale=alt.Scale(domain=[domain_min, domain_max])
         ),
-        x2=alt.X2("end:T"),
+        x2="end:T",
         opacity=alt.condition(
             alt.datum.segment == "Stage 2",
             alt.value(0.7),  # Stage 2 slightly darker
@@ -272,12 +276,12 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         ]
     )
    
-    start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111")\
+    start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=10, color="#111")\
                        .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
-    end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=11, color="#111")\
+    end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=10, color="#111")\
                        .encode(x="end:T", text=alt.Text("end:T", format="%d %b"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
-    inbar = base.mark_text(align="center", baseline="middle", fontSize=11, fill="black").encode(
+    inbar = base.mark_text(align="center", baseline="middle", fontSize=10, fill="black").encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         text=alt.Text("title_inbar:N"),
         opacity=text_cond
