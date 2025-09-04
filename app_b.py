@@ -325,17 +325,26 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
 st.title("Calls Explorer — Gantt (two-stage + in-bar titles)")
 
-# --- Fixed Excel file path ---
-file_path = r"C:\Users\davide.casarin\Downloads\horizon_europe_parsed (2).xlsx"
+import requests
+
+# SharePoint direct-download link
+sharepoint_url = "https://schuman365.sharepoint.com/:x:/s/SchumanDocuments/EXXv7np_3qdIr7M-XzSyAWQBDHdaEaOvRaAPkf5WBdeEEA?download=1"
+
+@st.cache_data
+def load_excel_from_sharepoint(url: str):
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return pd.ExcelFile(io.BytesIO(resp.content))
 
 try:
-    xls = pd.ExcelFile(file_path)
+    xls = load_excel_from_sharepoint(sharepoint_url)
     sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
     raw = pd.read_excel(xls, sheet_name=sheet)
     df = canonicalise(raw)
 except Exception as e:
-    st.error(f"Could not load Excel file: {file_path}")
+    st.error(f"❌ Could not load Excel file from SharePoint: {e}")
     st.stop()
+
 
 # ----- Top: APPLY form (moved from sidebar) -----
 with st.form("filters_form", clear_on_submit=False):
