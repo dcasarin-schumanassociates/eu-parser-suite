@@ -254,7 +254,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     chart = (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)\
         .properties(height=chart_height, width=4000)\
         .configure_axis(grid=False)\
-        .configure_view(strokeWidth=0)
+        .configure_view(strokeWidth=0)\
+        .resolve_scale(y='shared')\
+        .resolve_axis(y='shared')
     return chart
 
 # ---------- UI ----------
@@ -411,7 +413,7 @@ with tab1:
         chart = build_altair_chart_from_segments(segments,
                                                  view_start=crit["open_start"],
                                                  view_end=crit["close_to"])
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, use_container_width=False)
 
 with tab2:
     st.subheader("Filtered table")
