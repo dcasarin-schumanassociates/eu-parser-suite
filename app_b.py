@@ -4,6 +4,7 @@ import io
 import pandas as pd
 import streamlit as st
 import altair as alt
+import re
 
 # ---------- Column mapping tailored to your Excel ----------
 COLUMN_MAP = {
