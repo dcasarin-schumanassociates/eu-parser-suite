@@ -290,9 +290,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelPadding=150,
                 domain=True,                             
             ),
-            scale=alt.Scale(band=0.7)   # only band, no domain
-        )
-    )   
+            scale=alt.Scale(domain=y_order, paddingInner=0.3, paddingOuter=0.1)))   
 
     bars = alt.Chart(seg).mark_bar(cornerRadius=3, color="#1E90FF").encode(
         y=alt.Y(
@@ -306,7 +304,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelPadding=150,
                 domain=True
             ),
-            scale=alt.Scale(band=0.7)   # only band, no domain
+            scale=alt.Scale(domain=y_order)   # only band, no domain
         ),
         x=alt.X(
             "start:T",
