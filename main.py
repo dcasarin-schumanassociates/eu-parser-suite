@@ -13,6 +13,22 @@ PARSERS = {
 }
 
 st.set_page_config(page_title="EU Calls Parser", layout="wide")
+
+import base64
+
+file_path = "logo.png"
+with open(file_path, "rb") as f:
+    data = base64.b64encode(f.read()).decode("utf-8")
+
+st.markdown(
+    f"""
+    <div style="text-align: center;">
+        <img src="data:image/png;base64,{data}" width="250">
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("EU Calls Parser (Programme Selector)")
 
 st.markdown("Pick a **programme**, upload one or more **PDFs**, and preview the parsed table. "
