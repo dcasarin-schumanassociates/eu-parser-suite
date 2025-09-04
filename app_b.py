@@ -372,9 +372,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     ).properties(
         height=chart_height+60, width=5000
     ).configure_axis(
-        grid=True
+        grid=False
     ).configure_view(
-        strokeWidth=0
+        strokeWidth=0,
+        clip=False
     ).resolve_scale(
         x='shared',
         y='shared'
