@@ -208,7 +208,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
                     "y_label": y_label, "programme": prog,
                     "start": first_dt, "end": segB_end,
                     "segment": "Stage 2",
-                    "title": title,"title_inbar": title_inbar,
+                    "title": title,"title_inbar": "",
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "type_of_action" : r.get("type_of_action"),  # 👈 add this
                     "bar_days": bar_days,
