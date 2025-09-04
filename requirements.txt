@@ -7,3 +7,4 @@ streamlit-echarts>=0.4.0
 plotly
 PyMuPDF
 fitz
+streamlit-aggrid
