@@ -293,7 +293,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=500,
                 labelFontSize=11,
                 labelAlign="right",
-                labelPadding=10,
+                labelPadding=50,
                 domain=True,                             
             ),
             scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)))   
@@ -307,7 +307,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=500,
                 labelFontSize=13,
                 labelAlign="right",
-                labelPadding=10,
+                labelPadding=50,
                 domain=True
             ),
             scale=alt.Scale(domain=y_order)   # only band, no domain
@@ -320,7 +320,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 tickCount="month",
                 orient="bottom",      # 👈 force top
                 labelFontSize=11,
-                labelPadding=10,   # 👈 extra room for labels
+                labelPadding=50,   # 👈 extra room for labels
                 labelOverlap="greedy",   # <— allow Vega to hide some labels
                 tickSize=6
             ),
@@ -572,7 +572,7 @@ with tab1:
             .scroll-container {
                 overflow-x: auto;
                 overflow-y: auto;
-                height: 800px;   /* adjust height as needed */
+                height: 10px;   /* adjust height as needed */
                 border: 1px solid #ddd;
                 padding: 5px;
             }
