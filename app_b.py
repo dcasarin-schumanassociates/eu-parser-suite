@@ -325,14 +325,17 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
 st.title("Calls Explorer — Gantt (two-stage + in-bar titles)")
 
-upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
-if not upl:
-    st.stop()
+# --- Fixed Excel file path ---
+file_path = r"C:\Users\davide.casarin\Downloads\horizon_europe_parsed (2).xlsx"
 
-xls = pd.ExcelFile(upl)
-sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
-raw = pd.read_excel(xls, sheet_name=sheet)
-df = canonicalise(raw)
+try:
+    xls = pd.ExcelFile(file_path)
+    sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
+    raw = pd.read_excel(xls, sheet_name=sheet)
+    df = canonicalise(raw)
+except Exception as e:
+    st.error(f"Could not load Excel file: {file_path}")
+    st.stop()
 
 # ----- Top: APPLY form (moved from sidebar) -----
 with st.form("filters_form", clear_on_submit=False):
