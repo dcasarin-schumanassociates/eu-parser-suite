@@ -257,7 +257,6 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             scale=alt.Scale(domain=[domain_min, domain_max])
         ),
         x2=alt.X2("end:T"),
-        color=alt.Color("type_of_action:N", legend=alt.Legend(title="Type of Action")),
         opacity=alt.condition(
             alt.datum.segment == "Stage 2",
             alt.value(0.7),  # Stage 2 slightly darker
@@ -284,7 +283,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         opacity=text_cond
     )
 
-    chart = (month_shade + week_grid + month_grid + bars + start_labels + end_labels + inbar)\
+    chart = (month_shade + bars + start_labels + end_labels + inbar)
         .properties(height=chart_height, width=4000)\
         .configure_axis(grid=False)\
         .configure_view(strokeWidth=0)\
