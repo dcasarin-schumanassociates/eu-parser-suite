@@ -314,6 +314,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 tickCount="month",
                 orient="top",      # 👈 force top
                 labelFontSize=11,
+                labelPadding=12   # 👈 extra room for labels
                 labelOverlap="greedy",   # <— allow Vega to hide some labels
                 tickSize=6
             ),
