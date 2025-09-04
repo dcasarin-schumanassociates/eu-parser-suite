@@ -133,7 +133,7 @@ def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
         df["two_stage"] = False
     return df
 
-def wrap_label(text: str, width=36, max_lines=3) -> str:
+def wrap_label(text: str, width=50, max_lines=3) -> str:
     s = str(text or "")
     parts = [s[i:i+width] for i in range(0, len(s), width)]
     return "\n".join(parts[:max_lines])
