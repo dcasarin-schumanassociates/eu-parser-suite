@@ -572,7 +572,7 @@ with tab1:
             .scroll-container {
                 overflow-x: auto;
                 overflow-y: auto;
-                height: 50px;   /* adjust height as needed */
+                height: 1000px;   /* adjust height as needed */
                 padding: 50px;
             }
             </style>
