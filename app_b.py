@@ -40,23 +40,19 @@ DISPLAY_COLS = [
 
 # ---------- Helpers ----------
 
-def format_description(text: str) -> str:
+import re
+
+def normalize_bullets(text: str) -> str:
+    """Replace weird bullet chars with clean Markdown dashes and add newlines."""
     if not text:
         return ""
-    # Replace oddball bullets with a standard dash
-    text = text.replace("", "- ")
-    text = text.replace("▪", "- ")
-    text = text.replace("◦", "- ")
-    text = text.replace("●", "- ")
-    text = text.replace("•", "- ")
-
-    # Normalise whitespace
+    # Replace common oddball bullets
+    text = text.replace("", "- ").replace("▪", "- ").replace("◦", "- ")
+    # Normalize whitespace
     text = re.sub(r"\s+", " ", text)
-
-    # Add line breaks before common bullet patterns
+    # Add line breaks before bullets and numbered lists
     text = re.sub(r"(\s*[-•*]\s+)", r"\n\1", text)
     text = re.sub(r"(\s*\d+\.\s+)", r"\n\1", text)
-
     return text.strip()
 
 def highlight_text(text: str, keywords: list[str], colours=None) -> str:
