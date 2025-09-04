@@ -215,7 +215,23 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
     month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#FFF", strokeWidth=1.5).encode(x="t:T")
-    
+
+    month_labels_df = pd.DataFrame({
+        "month": months[:-1],
+        "next_month": months[1:],
+        "label": [m.strftime("%b %Y") for m in months[:-1]]
+    })
+
+    month_labels = alt.Chart(month_labels_df).mark_text(
+        align="center", baseline="bottom", dy=-20, fontSize=12, fontWeight="bold"
+    ).encode(
+        x=alt.X("month:T"),
+        x2="next_month:T",
+        y=alt.value(0),  # fixed at top of chart
+        text="label:N"
+    )
+
+        
     base = alt.Chart(seg).encode(
         y=alt.Y(
             "y_label:N",
@@ -285,7 +301,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
 
     chart = (
-        month_shade + month_grid + bars + start_labels + end_labels + inbar
+        month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels
     ).properties(
         height=chart_height, width=4000
     ).configure_axis(
