@@ -227,9 +227,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             axis=alt.Axis(
                 title=None,
                 labelLimit=8000,
-                labelFontSize=12,
+                labelFontSize=11,
                 labelAlign="right",
-                labelPadding=20,
+                labelPadding=150,
                 domain=True,                             
             )
         )
