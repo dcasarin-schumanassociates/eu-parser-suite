@@ -327,7 +327,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     return chart
 
 # ---------- UI ----------
-st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
+st.set_page_config(page_title="Funding Dashboard", layout="wide")
 
 import base64
 
@@ -344,13 +344,12 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("Calls Explorer — Gantt (two-stage + in-bar titles)")
+st.title("Funding Dashboard")
 
 st.info(
     "📂 Please upload the latest parsed Excel file. \n\n"
     "➡️ You can find it in the **Schuman Associates shared folder** "
     "(look for *horizon_europe_parsed.xlsx*). \n\n"
-    "Make sure to download it locally from SharePoint and then drop it here."
 )
 
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
