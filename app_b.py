@@ -40,7 +40,24 @@ DISPLAY_COLS = [
 
 # ---------- Helpers ----------
 
-import re
+def format_description(text: str) -> str:
+    if not text:
+        return ""
+    # Replace oddball bullets with a standard dash
+    text = text.replace("", "- ")
+    text = text.replace("▪", "- ")
+    text = text.replace("◦", "- ")
+    text = text.replace("●", "- ")
+    text = text.replace("•", "- ")
+
+    # Normalise whitespace
+    text = re.sub(r"\s+", " ", text)
+
+    # Add line breaks before common bullet patterns
+    text = re.sub(r"(\s*[-•*]\s+)", r"\n\1", text)
+    text = re.sub(r"(\s*\d+\.\s+)", r"\n\1", text)
+
+    return text.strip()
 
 def highlight_text(text: str, keywords: list[str], colours=None) -> str:
     """Return text with keywords highlighted using HTML span tags."""
@@ -531,7 +548,7 @@ with tab3:
     st.subheader("Full data (expand rows)")
 
     # Collect keywords from criteria
-    kw_list = [crit.get("kw1",""), crit.get("kw2",""), crit.get("kw3","")]
+    kw_list = [crit.get("kw1", ""), crit.get("kw2", ""), crit.get("kw3", "")]
 
     for _, row in f.iterrows():
         # Title line of the expander
@@ -568,25 +585,28 @@ with tab3:
                 f"| **TRL:** {row.get('trl','-')}"
             )
 
-            # --- Expandable long text sections with highlights
+            # --- Expandable long text sections with bullet normalization + highlights
             if row.get("expected_outcome"):
                 with st.expander("🎯 Expected Outcome"):
+                    clean_text = normalize_bullets(row.get("expected_outcome"))
                     st.markdown(
-                        highlight_text(row.get("expected_outcome"), kw_list),
+                        highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
                     )
 
             if row.get("scope"):
                 with st.expander("🧭 Scope"):
+                    clean_text = normalize_bullets(row.get("scope"))
                     st.markdown(
-                        highlight_text(row.get("scope"), kw_list),
+                        highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
                     )
 
             if row.get("full_text"):
                 with st.expander("📖 Full Description"):
+                    clean_text = normalize_bullets(row.get("full_text"))
                     st.markdown(
-                        highlight_text(row.get("full_text"), kw_list),
+                        highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
                     )
 
