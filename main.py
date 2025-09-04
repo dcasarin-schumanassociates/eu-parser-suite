@@ -3,11 +3,6 @@ from __future__ import annotations
 import io, time
 import pandas as pd
 import streamlit as st
-import # main.py
-from __future__ import annotations
-import io, time
-import pandas as pd
-import streamlit as st
 import plotly.express as px
 
 from parsers import horizon as horizon_parser
