@@ -226,10 +226,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             sort=y_order,
             axis=alt.Axis(
                 title=None,
-                labelLimit=8000,
+                labelLimit=10000,
                 labelFontSize=11,
                 labelAlign="right",
-                labelPadding=150,
+                labelPadding=175,
                 domain=True,                             
             )
         )
