@@ -486,7 +486,18 @@ with tab2:
 
 with tab3:
     st.subheader("Full data (expand rows)")
+
     for _, row in f.iterrows():
-        title = f"{row.get('code','')} — {row.get('title','')}"
+        title = f"**{row.get('code','')} — {row.get('title','')}**"
         with st.expander(title):
-            st.write(row.to_dict())
+            st.markdown(f"📅 **Opening:** {row.get('opening_date'):%d %b %Y} → **Deadline:** {row.get('deadline'):%d %b %Y}")
+            if row.get("two_stage"):
+                st.markdown(f"🔄 Two-stage: Stage 1 → {row.get('first_deadline'):%d %b %Y}, Stage 2 → {row.get('second_deadline'):%d %b %Y}")
+            
+            st.markdown(f"💶 **Budget per project:** {row.get('budget_per_project_eur'):,.0f} EUR")
+            st.markdown(f"🏷️ **Programme:** {row.get('programme')} | **Cluster:** {row.get('cluster')} | **Destination:** {row.get('destination_or_strand')}")
+
+            st.markdown("---")
+            st.markdown(f"**Expected outcome:**\n{row.get('expected_outcome','-')}")
+            st.markdown(f"**Scope:**\n{row.get('scope','-')}")
+            st.markdown(f"**Description:**\n{row.get('full_text','-')}")
