@@ -217,7 +217,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     weeks = pd.date_range(pd.Timestamp(min_x).to_period("W-MON").start_time,
                           pd.Timestamp(max_x).to_period("W-MON").start_time,
                           freq="W-MON")
-    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#9AA0A6", strokeWidth=1.5).encode(x="t:T")
+    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#111", strokeWidth=1.5).encode(x="t:T")
     week_grid  = alt.Chart(pd.DataFrame({"t": weeks})).mark_rule(stroke="#E5E7EB", strokeWidth=1).encode(x="t:T")
 
     base = alt.Chart(seg).encode(
