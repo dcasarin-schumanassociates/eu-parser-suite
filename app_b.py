@@ -230,9 +230,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelFontSize=12,
                 labelAlign="right",
                 labelPadding=20,
-                domain=True,
-                # Replace "\n" (inserted by wrap_label) with real line breaks
-                labelExpr="replace(datum.label, '\\\\n', '\n')"
+                domain=True,                             
             )
         )
     )   
