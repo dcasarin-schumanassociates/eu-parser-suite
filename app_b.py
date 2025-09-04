@@ -241,6 +241,12 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                            orient="top", labelFontSize=11, tickSize=6),
              scale=alt.Scale(domain=[domain_min, domain_max])),
          x2=alt.X2("end:T"),
+         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
+         opacity=alt.condition(
+             alt.datum.segment == "Stage 2",
+             alt.value(0.7),  # Stage 2 slightly darker
+             alt.value(1.0)   # Stage 1/Single full colour
+         ),
          tooltip=[alt.Tooltip("title:N", title="Title"),
                   alt.Tooltip("programme:N", title="Programme"),
                   alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
