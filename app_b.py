@@ -342,6 +342,8 @@ raw = pd.read_excel(xls, sheet_name=sheet)
 df = canonicalise(raw)
 
 
+# --------------------------------------
+
 # ----- Top: APPLY form (moved from sidebar) -----
 with st.form("filters_form", clear_on_submit=False):
     st.header("Filters")
@@ -365,13 +367,13 @@ with st.form("filters_form", clear_on_submit=False):
 
     # --- Three keyword boxes in same row
     st.subheader("Search (multi-keyword)")
-    kw1, kw2, kw3 = st.columns(3)
-    with kw1:
-        kw1_val = st.text_input("Keyword 1")
-    with kw2:
-        kw2_val = st.text_input("Keyword 2")
-    with kw3:
-        kw3_val = st.text_input("Keyword 3")
+    col5, col6, col7 = st.columns(3)
+    with col5:
+        kw1 = st.text_input("Keyword 1")
+    with col6:
+        kw2 = st.text_input("Keyword 2")
+    with col7:
+        kw3 = st.text_input("Keyword 3")
 
     combine_mode = st.radio("Combine", ["AND", "OR"], horizontal=True, index=0)
     title_code_only = st.checkbox("Search only in Title & Code", value=True)
@@ -385,16 +387,16 @@ with st.form("filters_form", clear_on_submit=False):
     ], axis=0)
     dead_lo, dead_hi = safe_date_bounds(dead_all)
 
-    col5, col6 = st.columns(2)
-    with col5:
+    col8, col9 = st.columns(2)
+    with col8:
         open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-    with col6:
+    with col9:
         open_end   = st.date_input("Open to", value=open_hi, min_value=open_lo, max_value=open_hi)
 
-    col7, col8 = st.columns(2)
-    with col7:
+    col10, col11 = st.columns(2)
+    with col10:
         close_from = st.date_input("Close from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-    with col8:
+    with col11:
         close_to   = st.date_input("Close to", value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
     # --- Budget slider
@@ -406,8 +408,6 @@ with st.form("filters_form", clear_on_submit=False):
         if not (min_bud < max_bud):
             min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
     budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
-
-    # --- Removed "View window" row ---
 
     applied = st.form_submit_button("Apply filters")
 
@@ -421,10 +421,8 @@ if applied:
         programmes=programmes, clusters=clusters, types=types, trls=trls, dests=dests,
         kw1=kw1, kw2=kw2, kw3=kw3, combine_mode=combine_mode, title_code_only=title_code_only,
         open_start=open_start, open_end=open_end, close_from=close_from, close_to=close_to,
-        budget_range=budget_range, view_start=view_start, view_end=view_end
+        budget_range=budget_range, view_start=None, view_end=None
     )
-    st.session_state.view_start = view_start
-    st.session_state.view_end   = view_end
 
 # Defaults before first Apply
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
@@ -442,7 +440,7 @@ if not st.session_state.criteria:
         kw1="", kw2="", kw3="", combine_mode="AND", title_code_only=True,
         open_start=open_lo, open_end=open_hi, close_from=dead_lo, close_to=dead_hi,
         budget_range=(0.0, 1_000_000.0),
-        view_start=st.session_state.view_start, view_end=st.session_state.view_end
+        view_start=None, view_end=None
     )
 
 crit = st.session_state.criteria
@@ -472,6 +470,7 @@ f = f[(f["budget_per_project_eur"].fillna(0) >= crit["budget_range"][0]) &
       (f["budget_per_project_eur"].fillna(0) <= crit["budget_range"][1])]
 
 st.markdown(f"**Showing {len(f)} rows** after last applied filters.")
+
 
 # Tabs
 tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
