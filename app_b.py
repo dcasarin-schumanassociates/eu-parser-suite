@@ -143,7 +143,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         first_dt  = r.get("first_deadline")
         second_dt = r.get("second_deadline")
         two_stage = bool(r.get("two_stage"))
-        title_inbar = wrap_label(title, width=26, max_lines=3)
+        title_inbar = wrap_label(code, width=26, max_lines=3)
 
         if two_stage:
             if pd.notna(open_dt) and pd.notna(first_dt) and open_dt <= first_dt:
@@ -164,7 +164,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
                     "y_label": y_label, "programme": prog,
                     "start": first_dt, "end": segB_end,
                     "segment": "Stage 2",
-                    "title": title,
+                    "title": title,"title_inbar": title_inbar,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "bar_days": bar_days,
                     "mid": first_dt + (segB_end - first_dt)/2,
