@@ -411,7 +411,7 @@ with tab1:
         chart = build_altair_chart_from_segments(segments,
                                                  view_start=crit["open_start"],
                                                  view_end=crit["close_to"])
-        st.altair_chart(chart, use_container_width=False)
+        st.altair_chart(chart, use_container_width=True)
 
 with tab2:
     st.subheader("Filtered table")
