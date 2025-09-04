@@ -462,7 +462,7 @@ with tab1:
 with tab2:
     st.subheader("Filtered table")
     show_cols = [c for c in DISPLAY_COLS if c in f.columns]
-    st.dataframe(f[show_cols], use_container_width=True, hide_index=True)
+    st.dataframe(f[show_cols], use_container_width=True, hide_index=True, height=1000)
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as xw:
         f.to_excel(xw, index=False, sheet_name="filtered")
