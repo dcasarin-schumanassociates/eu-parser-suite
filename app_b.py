@@ -567,17 +567,25 @@ with tab1:
             view_end=crit["close_to"]
         )
 
-        # Render the chart in a scrollable container
-        chart_html = chart.to_html()
-        components.html(
-            f"""
-            <div style="overflow-x: auto; overflow-y: auto; max-height: 800px; padding: 0;">
-                {chart_html}
-            </div>
+        # Add scrollable container for chart
+        st.markdown(
+            """
+            <style>
+            .scroll-container {
+                overflow-x: auto;
+                overflow-y: auto;
+                height: 1000px;   /* adjust height as needed */
+                padding: 50px;
+            }
+            </style>
             """,
-            height=900,  # adjust container height
-            scrolling=True
+            unsafe_allow_html=True
         )
+
+        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+        st.altair_chart(chart, use_container_width=False)
+        st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 with tab2:
