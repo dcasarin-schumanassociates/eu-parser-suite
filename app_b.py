@@ -244,7 +244,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=500,
                 labelFontSize=11,
                 labelAlign="right",
-                labelPadding=20,
+                labelPadding=150,
                 domain=True,                             
             )
         )
@@ -259,7 +259,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=500,
                 labelFontSize=13,
                 labelAlign="right",
-                labelPadding=20,
+                labelPadding=150,
                 domain=True
             ),
             scale=alt.Scale(domain=y_order)   # 👈 explicit domain
@@ -311,7 +311,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     chart = (
         month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels
     ).properties(
-        height=chart_height, width=3000
+        height=chart_height, width=4000
     ).configure_axis(
         grid=False
     ).configure_view(
