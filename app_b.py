@@ -143,7 +143,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         first_dt  = r.get("first_deadline")
         second_dt = r.get("second_deadline")
         two_stage = bool(r.get("two_stage"))
-        title_inbar = wrap_label(title, width=26, max_lines=3)
+        title_inbar = wrap_label(title, width=100, max_lines=3)
 
         if two_stage:
             if pd.notna(open_dt) and pd.notna(first_dt) and open_dt <= first_dt:
@@ -226,10 +226,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             sort=y_order,
             axis=alt.Axis(
                 title=None,
-                labelLimit=10000,
+                labelLimit=100000,
                 labelFontSize=11,
                 labelAlign="right",
-                labelPadding=200,
+                labelPadding=250,
                 domain=True,                             
             )
         )
@@ -244,7 +244,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=8000,
                 labelFontSize=12,
                 labelAlign="right",
-                labelPadding=20,
+                labelPadding=175,
                 domain=True
             )
         ),
