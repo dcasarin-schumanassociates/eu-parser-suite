@@ -227,20 +227,19 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
     )
 
-    bars = alt.Chart(seg).mark_bar(cornerRadius=3).encode(
-    y=alt.Y("y_label:N", sort=y_order,
-            axis=alt.Axis(title=None, labelLimit=8000, labelFontSize=12,
-                          labelAlign="right", labelPadding=20, domain=True)),
-    x=alt.X("start:T",
-        axis=alt.Axis(title=None, format="%b %Y", tickCount="month",
-                      orient="top", labelFontSize=12, tickSize=6),
-        scale=alt.Scale(domain=[domain_min, domain_max])),
-    x2=alt.X2("end:T"),
-    color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
-    tooltip=[ ... ]
+   bars = base.mark_bar(cornerRadius=3).encode(
+        x=alt.X("start:T",
+            axis=alt.Axis(title=None, format="%b %Y", tickCount="month",
+                          orient="top", labelFontSize=12, tickSize=6),
+            scale=alt.Scale(domain=[domain_min, domain_max])),
+        x2=alt.X2("end:T"),
+        tooltip=[alt.Tooltip("title:N", title="Title"),
+                 alt.Tooltip("programme:N", title="Programme"),
+                 alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
+                 alt.Tooltip("start:T", title="Start", format="%d %b %Y"),
+                 alt.Tooltip("end:T", title="End", format="%d %b %Y")]
     )
-
-    
+   
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111")\
                        .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=11, color="#111")\
