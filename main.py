@@ -10,7 +10,7 @@ st.title("EU Calls Parser (Fixed Excel Loader)")
 
 # ----------------------------------------------------
 # 1. Point to your fixed Excel file
-FIXED_EXCEL_PATH = "data/calls_fixed.xlsx"  # 👈 change path as needed
+FIXED_EXCEL_PATH = r"C:\Users\davide.casarin\Downloads\horizon_europe_parsed (2).xlsx"
 # ----------------------------------------------------
 
 if not os.path.exists(FIXED_EXCEL_PATH):
