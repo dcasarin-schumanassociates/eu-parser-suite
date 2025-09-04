@@ -415,8 +415,8 @@ st.title("Funding Dashboard")
 
 st.info(
     "📂 Please upload the latest parsed Excel file. \n\n"
-    "➡️ You can find it in the **Schuman Associates shared folder** "
-    "(look for *horizon_europe_parsed.xlsx*). \n\n"
+    "➡️ You can find it in the **3.SA Practices\Central Systems and Bid Management\1. Central Systems\2. CS EU PROGRAMMES Area\4. Horizon Europe\CALENDAR OF CALLS FOR PROPOSALS\4. WPs 2026-2027\Coding Davide** folder "
+    "(look for *Horizon Calls - 26_27*). \n\n"
 )
 
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
