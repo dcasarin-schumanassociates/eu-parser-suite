@@ -238,7 +238,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             sort=y_order,
             axis=alt.Axis(
                 title=None,
-                labelLimit=100000,
+                labelLimit=500,
                 labelFontSize=11,
                 labelAlign="right",
                 labelPadding=100,
@@ -253,8 +253,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             sort=y_order,
             axis=alt.Axis(
                 title=None,
-                labelLimit=100,
-                labelFontSize=12,
+                labelLimit=500,
+                labelFontSize=13,
                 labelAlign="right",
                 labelPadding=100,
                 domain=True
