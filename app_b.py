@@ -64,17 +64,23 @@ def clean_footer(text: str) -> str:
 
 
 def normalize_bullets(text: str) -> str:
-    """Replace weird bullet chars with clean Markdown dashes and add newlines."""
+    """Replace odd bullets with clean Markdown dashes and add newlines."""
     if not text:
         return ""
+
     # Replace common oddball bullets
-    text = text.replace("- ").replace("▪", "- ").replace("◦", "- ")
-    # Normalize whitespace
+    for ch in ["▪", "◦", "●", "•"]:
+        text = text.replace(ch, "- ")
+
+    # Normalise whitespace
     text = re.sub(r"\s+", " ", text)
+
     # Add line breaks before bullets and numbered lists
-    text = re.sub(r"(\s*[-•*]\s+)", r"\n\1", text)
+    text = re.sub(r"(\s*[-*]\s+)", r"\n\1", text)
     text = re.sub(r"(\s*\d+\.\s+)", r"\n\1", text)
+
     return text.strip()
+
 
 def highlight_text(text: str, keywords: list[str], colours=None) -> str:
     """Return text with keywords highlighted using HTML span tags."""
