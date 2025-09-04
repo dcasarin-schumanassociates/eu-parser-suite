@@ -271,20 +271,6 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             alt.Tooltip("end:T", title="End", format="%d %b %Y")
         ]
     )
-
-    # Horizontal grid lines (across each row/category)
-    row_map = {label: i for i, label in enumerate(y_order)}
-    seg["_row_index"] = seg["y_label"].map(row_map)
-
-        # One rule between each row
-    row_boundaries = pd.DataFrame({"ypos": [i + 0.5 for i in range(len(y_order))]})
-    
-    hgrid = alt.Chart(row_boundaries).mark_rule(
-        stroke="#E5E7EB", strokeWidth=1
-    ).encode(
-        y=alt.Y("ypos:Q", axis=None)  # Quantitative, not categorical
-    )
-   
    
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111")\
                        .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
