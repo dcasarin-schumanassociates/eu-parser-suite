@@ -553,8 +553,6 @@ st.markdown(f"**Showing {len(f)} rows** after last applied filters.")
 # Tabs
 tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
 
-import streamlit.components.v1 as components
-
 with tab1:
     st.subheader("Gantt (Opening → Stage 1 → Stage 2 / Final)")
     segments = build_segments(f)
@@ -585,8 +583,6 @@ with tab1:
         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
         st.altair_chart(chart, use_container_width=False)
         st.markdown('</div>', unsafe_allow_html=True)
-
-
 
 with tab2:
     st.subheader("Filtered table")
