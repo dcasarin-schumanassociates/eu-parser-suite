@@ -505,6 +505,9 @@ with tab2:
 with tab3:
     st.subheader("Full data (expand rows)")
 
+    # Collect keywords from criteria
+    kw_list = [crit.get("kw1",""), crit.get("kw2",""), crit.get("kw3","")]
+
     for _, row in f.iterrows():
         # Title line of the expander
         title = f"{row.get('code','')} — {row.get('title','')}"
@@ -540,23 +543,21 @@ with tab3:
                 f"| **TRL:** {row.get('trl','-')}"
             )
 
-            # --- Expandable long text sections
-            kw_list = [crit.get("kw1",""), crit.get("kw2",""), crit.get("kw3","")]
-
+            # --- Expandable long text sections with highlights
             if row.get("expected_outcome"):
                 with st.expander("🎯 Expected Outcome"):
                     st.markdown(
                         highlight_text(row.get("expected_outcome"), kw_list),
                         unsafe_allow_html=True
                     )
-            
+
             if row.get("scope"):
                 with st.expander("🧭 Scope"):
                     st.markdown(
                         highlight_text(row.get("scope"), kw_list),
                         unsafe_allow_html=True
                     )
-            
+
             if row.get("full_text"):
                 with st.expander("📖 Full Description"):
                     st.markdown(
@@ -570,3 +571,4 @@ with tab3:
                 f"| Version: {row.get('version_label','-')} "
                 f"| Parsed on: {row.get('parsed_on_utc','-')}"
             )
+
