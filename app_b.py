@@ -329,9 +329,19 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 # ---------- UI ----------
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
 
+import base64
+
+file_path = "logo.png"
+with open(file_path, "rb") as f:
+    data = base64.b64encode(f.read()).decode("utf-8")
+
 st.markdown(
-    "<div style='text-align: center;'><img src='logo.png' width='437'></div>",
-    unsafe_allow_html=False
+    f"""
+    <div style="text-align: center;">
+        <img src="data:image/png;base64,{data}" width="250">
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.title("Calls Explorer — Gantt (two-stage + in-bar titles)")
