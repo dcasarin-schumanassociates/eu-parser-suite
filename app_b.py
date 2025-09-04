@@ -72,7 +72,7 @@ def normalize_bullets(text: str) -> str:
         return ""
 
     # Replace common oddball bullets
-    for ch in ["▪", "◦", "●", "•"]:
+    for ch in ["▪", "◦", "●", "•", ""]:
         text = text.replace(ch, "- ")
 
     # Normalise whitespace
