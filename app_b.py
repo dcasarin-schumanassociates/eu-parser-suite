@@ -499,4 +499,4 @@ with tab3:
 
             st.markdown("---")
             st.markdown(f"**Expected outcome:**\n{row.get('expected_outcome','-')}")
-            st.markdown(f"**Scope:**\n{row.get('scope','-')}"
+            st.markdown(f"**Scope:**\n{row.get('scope','-')}")
