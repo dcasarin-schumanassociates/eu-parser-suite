@@ -68,7 +68,7 @@ def normalize_bullets(text: str) -> str:
     if not text:
         return ""
     # Replace common oddball bullets
-    text = text.replace("", "- ").replace("▪", "- ").replace("◦", "- ")
+    text = text.replace("- ").replace("▪", "- ").replace("◦", "- ")
     # Normalize whitespace
     text = re.sub(r"\s+", " ", text)
     # Add line breaks before bullets and numbered lists
