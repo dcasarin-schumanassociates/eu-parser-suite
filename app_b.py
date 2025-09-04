@@ -325,25 +325,21 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 st.set_page_config(page_title="Calls Explorer — Gantt", layout="wide")
 st.title("Calls Explorer — Gantt (two-stage + in-bar titles)")
 
-import requests
+st.info(
+    "📂 Please upload the latest parsed Excel file. \n\n"
+    "➡️ You can find it in the **Schuman Associates shared folder** "
+    "(look for *horizon_europe_parsed.xlsx*). \n\n"
+    "Make sure to download it locally from SharePoint and then drop it here."
+)
 
-# SharePoint direct-download link
-sharepoint_url = "https://schuman365.sharepoint.com/:x:/s/SchumanDocuments/EXXv7np_3qdIr7M-XzSyAWQBDHdaEaOvRaAPkf5WBdeEEA?download=1"
-
-@st.cache_data
-def load_excel_from_sharepoint(url: str):
-    resp = requests.get(url)
-    resp.raise_for_status()
-    return pd.ExcelFile(io.BytesIO(resp.content))
-
-try:
-    xls = load_excel_from_sharepoint(sharepoint_url)
-    sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
-    raw = pd.read_excel(xls, sheet_name=sheet)
-    df = canonicalise(raw)
-except Exception as e:
-    st.error(f"❌ Could not load Excel file from SharePoint: {e}")
+upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
+if not upl:
     st.stop()
+
+xls = pd.ExcelFile(upl)
+sheet = st.selectbox("Sheet", xls.sheet_names, index=0)
+raw = pd.read_excel(xls, sheet_name=sheet)
+df = canonicalise(raw)
 
 
 # ----- Top: APPLY form (moved from sidebar) -----
