@@ -277,9 +277,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
    
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=10, color="#111")\
-                       .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
+                       .encode(x="start:T", text=alt.Text("start:T", format="%d %MM %YY"))
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=10, color="#111")\
-                       .encode(x="end:T", text=alt.Text("end:T", format="%d %b"))
+                       .encode(x="end:T", text=alt.Text("end:T", format="%d %MM %YY"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     inbar = base.mark_text(align="center", baseline="middle", fontSize=10, fill="black").encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
