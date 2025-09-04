@@ -222,8 +222,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 
     base = alt.Chart(seg).encode(
         y=alt.Y("y_label:N", sort=y_order,
-            axis=alt.Axis(title=None,labelLimit=10000,labelFontSize=12,
-                          labelAlign="middle",labelPadding=250,domain=True)),
+            axis=alt.Axis(title=None,labelLimit=10000,labelFontSize=11,
+                          labelAlign="right",labelPadding=250,domain=True)),
         color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
     )
 
