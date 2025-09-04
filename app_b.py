@@ -199,8 +199,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     unique_rows = len(y_order)
     row_height = 50
     chart_height = max(560, unique_rows * row_height)
-    domain_min = pd.to_datetime(view_start)
-    domain_max = pd.to_datetime(view_end)
+    domain_min = seg["start"].min()
+    domain_max = seg["end"].max()
     min_x = min(seg["start"].min(), seg["end"].min())
     max_x = max(seg["start"].max(), seg["end"].max())
     bands_df = build_month_bands(min_x, max_x)
