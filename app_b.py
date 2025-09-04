@@ -222,16 +222,17 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 
     base = alt.Chart(seg).encode(
         y=alt.Y(
-            "y_label:N", 
+            "y_label:N",
             sort=y_order,
             axis=alt.Axis(
                 title=None,
-                labelLimit=10000,
-                labelFontSize=11,
+                labelLimit=8000,
+                labelFontSize=12,
                 labelAlign="right",
-                labelPadding=250,
+                labelPadding=20,
                 domain=True,
-                labelExpr="replace(datum.label, '\\\\n', '\n')"  # 👈 this is the key
+                # Replace "\n" (inserted by wrap_label) with real line breaks
+                labelExpr="replace(datum.label, '\\\\n', '\n')"
             )
         )
     )   
