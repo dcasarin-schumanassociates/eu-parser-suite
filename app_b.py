@@ -42,6 +42,27 @@ DISPLAY_COLS = [
 
 import re
 
+import re
+
+def clean_footer(text: str) -> str:
+    """
+    Remove footer lines like:
+    'Work Programme ... Page xx of yy'
+    """
+    if not text:
+        return ""
+
+    # Regex: matches "Work Programme ..." until "Page <num> of <num>"
+    footer_pattern = re.compile(r"Work Programme.*?Page\s+\d+\s+of\s+\d+", re.IGNORECASE)
+
+    # Remove all occurrences
+    cleaned = footer_pattern.sub("", text)
+
+    # Strip redundant whitespace
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
 def normalize_bullets(text: str) -> str:
     """Replace weird bullet chars with clean Markdown dashes and add newlines."""
     if not text:
@@ -584,7 +605,7 @@ with tab3:
             # --- Expandable long text sections with bullet normalization + highlights
             if row.get("expected_outcome"):
                 with st.expander("🎯 Expected Outcome"):
-                    clean_text = normalize_bullets(row.get("expected_outcome"))
+                    clean_text = normalize_bullets(clean_footer(row.get("expected_outcome"))
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
@@ -592,7 +613,7 @@ with tab3:
 
             if row.get("scope"):
                 with st.expander("🧭 Scope"):
-                    clean_text = normalize_bullets(row.get("scope"))
+                    clean_text = normalize_bullets(clean_footer(row.get("scope"))
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
@@ -600,7 +621,7 @@ with tab3:
 
             if row.get("full_text"):
                 with st.expander("📖 Full Description"):
-                    clean_text = normalize_bullets(row.get("full_text"))
+                    clean_text = normalize_bullets(clean_footer(row.get("full_text"))
                     st.markdown(
                         highlight_text(clean_text, kw_list),
                         unsafe_allow_html=True
