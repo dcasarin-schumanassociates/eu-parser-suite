@@ -461,32 +461,26 @@ with tab1:
 
 with tab2:
     st.subheader("Filtered table")
+
     show_cols = [c for c in DISPLAY_COLS if c in f.columns]
     group_by_dest = st.checkbox("Group by Destination / Strand")
 
-    table_df = f[show_cols]
-    if group_by_dest and "destination_or_strand" in table_df.columns:
-        table_df = (
-            table_df.groupby("destination_or_strand", dropna=False)
-            .apply(lambda d: d.drop(columns=["destination_or_strand"]))
-            .reset_index(level=0)
+    if group_by_dest and "destination_or_strand" in f.columns:
+        for dest, group_df in f.groupby("destination_or_strand"):
+            with st.expander(f"Destination: {dest} ({len(group_df)} calls)"):
+                st.dataframe(
+                    group_df[show_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+    else:
+        st.dataframe(
+            f[show_cols],
+            use_container_width=True,
+            hide_index=True,
+            height=800
         )
-
-    st.dataframe(
-        table_df,
-        use_container_width=True,
-        hide_index=True,
-        height=800
-    )
-
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as xw:
-        f.to_excel(xw, index=False, sheet_name="filtered")
-    out.seek(0)
-    st.download_button("⬇️ Download filtered (Excel)", out,
-                       file_name="calls_filtered.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
 
 with tab3:
     st.subheader("Full data (expand rows)")
