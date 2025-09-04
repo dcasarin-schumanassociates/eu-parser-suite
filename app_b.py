@@ -559,10 +559,31 @@ with tab1:
     if segments.empty:
         st.info("No rows with valid dates to display.")
     else:
-        chart = build_altair_chart_from_segments(segments,
-                                                 view_start=crit["open_start"],
-                                                 view_end=crit["close_to"])
+        chart = build_altair_chart_from_segments(
+            segments,
+            view_start=crit["open_start"],
+            view_end=crit["close_to"]
+        )
+
+        # Add scrollable container for chart
+        st.markdown(
+            """
+            <style>
+            .scroll-container {
+                overflow-x: auto;
+                overflow-y: auto;
+                height: 800px;   /* adjust height as needed */
+                border: 1px solid #ddd;
+                padding: 5px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
         st.altair_chart(chart, use_container_width=False)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
     st.subheader("Filtered table")
