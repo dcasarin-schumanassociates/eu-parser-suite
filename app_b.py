@@ -230,7 +230,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     bars = base.mark_bar(cornerRadius=3).encode(
          x=alt.X("start:T",
              axis=alt.Axis(title=None, format="%b %Y", tickCount="month",
-                           orient="top", labelFontSize=12, tickSize=6),
+                           orient="top", labelFontSize=11, tickSize=6),
              scale=alt.Scale(domain=[domain_min, domain_max])),
          x2=alt.X2("end:T"),
          tooltip=[alt.Tooltip("title:N", title="Title"),
@@ -245,7 +245,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=11, color="#111")\
                        .encode(x="end:T", text=alt.Text("end:T", format="%d %b"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
-    inbar = base.mark_text(align="center", baseline="middle", fontSize=12, fill="white").encode(
+    inbar = base.mark_text(align="center", baseline="middle", fontSize=11, fill="white").encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         text=alt.Text("title_inbar:N"),
         opacity=text_cond
