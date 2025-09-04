@@ -47,18 +47,21 @@ import re
 def clean_footer(text: str) -> str:
     """
     Remove footer lines like:
-    'Work Programme ... Page xx of yy'
+    '... Work Programme 2026-2027 ... Page xx of yy ...'
+    even if embedded in a longer line.
     """
     if not text:
         return ""
 
-    # Regex: matches "Work Programme ..." until "Page <num> of <num>"
-    footer_pattern = re.compile(r"Work Programme.*?Page\s+\d+\s+of\s+\d+", re.IGNORECASE)
+    # Match "Work Programme ... Page <num> of <num>"
+    footer_pattern = re.compile(
+        r"Horizon\s*Europe\s*[-–]?\s*Work Programme.*?Page\s+\d+\s+of\s+\d+",
+        re.IGNORECASE | re.DOTALL
+    )
 
-    # Remove all occurrences
     cleaned = footer_pattern.sub("", text)
 
-    # Strip redundant whitespace
+    # Normalise whitespace
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
