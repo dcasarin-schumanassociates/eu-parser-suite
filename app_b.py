@@ -342,7 +342,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
    
     start_labels = base.mark_text(align="right",
                                   dx=-4,
-                                  dy=25,
+                                  dy=-8,
                                   fontSize=10,
                                   color="#111")\
                        .encode(x="start:T",
@@ -358,7 +358,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     inbar = base.mark_text(align="left",
                            baseline="middle",
                            dx=2,
-                           dy= -4,
+                           dy=25,
                            fontSize=10, 
                            fill="black").encode(
         x=alt.X("start:T",
