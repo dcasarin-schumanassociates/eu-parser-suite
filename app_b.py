@@ -283,12 +283,20 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         opacity=text_cond
     )
 
-    chart = (month_shade + bars + start_labels + end_labels + inbar)
-        .properties(height=chart_height, width=4000)\
-        .configure_axis(grid=False)\
-        .configure_view(strokeWidth=0)\
-        .resolve_scale(y='shared')\
-        .resolve_axis(y='shared')
+    chart = (
+        month_shade + bars + start_labels + end_labels + inbar
+    ).properties(
+        height=chart_height, width=4000
+    ).configure_axis(
+        grid=False
+    ).configure_view(
+        strokeWidth=0
+    ).resolve_scale(
+        y='shared'
+    ).resolve_axis(
+        y='shared'
+    )
+    
     return chart
 
 # ---------- UI ----------
