@@ -54,15 +54,15 @@ if uploaded_files:
     st.dataframe(combined_df.head(20), use_container_width=True)
 
     # Download
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as xw:
-            combined_df.to_excel(xw, index=False, sheet_name="parsed")
-        output.seek(0)
-        st.download_button(
-            label="⬇️ Download parsed Excel",
-            data=output,
-            file_name=f"{programme.replace(' ', '_').lower()}_parsed.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as xw:
+        combined_df.to_excel(xw, index=False, sheet_name="parsed")
+    output.seek(0)
+    st.download_button(
+        label="⬇️ Download parsed Excel",
+        data=output,
+        file_name=f"{programme.replace(' ', '_').lower()}_parsed.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
    
