@@ -344,7 +344,14 @@ df = canonicalise(raw)
 
 # --------------------------------------
 
-# ----- Top: APPLY form (moved from sidebar) -----
+# ----- Prepare filter option lists -----
+prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
+cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
+type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
+trl_opts     = sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
+dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d != ""])
+
+# ----- Top: APPLY form -----
 with st.form("filters_form", clear_on_submit=False):
     st.header("Filters")
 
@@ -409,67 +416,9 @@ with st.form("filters_form", clear_on_submit=False):
             min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
     budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
 
+    # ✅ This must be inside the form
     applied = st.form_submit_button("Apply filters")
 
-
-# Persist criteria on Apply
-if "criteria" not in st.session_state:
-    st.session_state.criteria = {}
-
-if applied:
-    st.session_state.criteria = dict(
-        programmes=programmes, clusters=clusters, types=types, trls=trls, dests=dests,
-        kw1=kw1, kw2=kw2, kw3=kw3, combine_mode=combine_mode, title_code_only=title_code_only,
-        open_start=open_start, open_end=open_end, close_from=close_from, close_to=close_to,
-        budget_range=budget_range, view_start=None, view_end=None
-    )
-
-# Defaults before first Apply
-open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
-dead_all = pd.concat([
-    pd.to_datetime(df.get("deadline"), errors="coerce"),
-    pd.to_datetime(df.get("first_deadline"), errors="coerce"),
-    pd.to_datetime(df.get("second_deadline"), errors="coerce"),
-], axis=0)
-dead_lo, dead_hi = safe_date_bounds(dead_all)
-
-if not st.session_state.criteria:
-    st.session_state.criteria = dict(
-        programmes=sorted(df["programme"].dropna().unique().tolist()),
-        clusters=[], types=[], trls=[], dests=[],
-        kw1="", kw2="", kw3="", combine_mode="AND", title_code_only=True,
-        open_start=open_lo, open_end=open_hi, close_from=dead_lo, close_to=dead_hi,
-        budget_range=(0.0, 1_000_000.0),
-        view_start=None, view_end=None
-    )
-
-crit = st.session_state.criteria
-
-# ---- Apply filters after Apply ----
-f = df.copy()
-f = multi_keyword_filter(f, [crit["kw1"], crit["kw2"], crit["kw3"]], crit["combine_mode"], crit["title_code_only"])
-if crit["programmes"]: f = f[f["programme"].isin(crit["programmes"])]
-if crit["clusters"]:   f = f[f["cluster"].isin(crit["clusters"])]
-if crit["types"]:      f = f[f["type_of_action"].isin(crit["types"])]
-if crit["trls"]:
-    trl_str = f["trl"].dropna().astype("Int64").astype(str)
-    f = f[trl_str.isin(crit["trls"])]
-if crit["dests"]:      f = f[f["destination_or_strand"].isin(crit["dests"])]
-
-f = f[(f["opening_date"] >= pd.to_datetime(crit["open_start"])) &
-      (f["opening_date"] <= pd.to_datetime(crit["open_end"]))]
-
-any_end_in = (
-    (pd.to_datetime(f.get("deadline"), errors="coerce").between(pd.to_datetime(crit["close_from"]), pd.to_datetime(crit["close_to"]), inclusive="both")) |
-    (pd.to_datetime(f.get("first_deadline"), errors="coerce").between(pd.to_datetime(crit["close_from"]), pd.to_datetime(crit["close_to"]), inclusive="both")) |
-    (pd.to_datetime(f.get("second_deadline"), errors="coerce").between(pd.to_datetime(crit["close_from"]), pd.to_datetime(crit["close_to"]), inclusive="both"))
-)
-f = f[any_end_in.fillna(False)]
-
-f = f[(f["budget_per_project_eur"].fillna(0) >= crit["budget_range"][0]) &
-      (f["budget_per_project_eur"].fillna(0) <= crit["budget_range"][1])]
-
-st.markdown(f"**Showing {len(f)} rows** after last applied filters.")
 
 
 # Tabs
