@@ -214,9 +214,6 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
-    weeks = pd.date_range(pd.Timestamp(min_x).to_period("W-MON").start_time,
-                          pd.Timestamp(max_x).to_period("W-MON").start_time,
-                          freq="W-MON")
     month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#FFF", strokeWidth=1.5).encode(x="t:T")
     
     base = alt.Chart(seg).encode(
@@ -277,9 +274,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
    
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=10, color="#111")\
-                       .encode(x="start:T", text=alt.Text("start:T", format="%d %MMM %Y"))
+                       .encode(x="start:T", text=alt.Text("start:T", format="%d %b %Y"))
     end_labels   = base.mark_text(align="left",  dx=4,  dy=-8, fontSize=10, color="#111")\
-                       .encode(x="end:T", text=alt.Text("end:T", format="%d %MMM %Y"))
+                       .encode(x="end:T", text=alt.Text("end:T", format="%d %b %Y"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     inbar = base.mark_text(align="center", baseline="middle", fontSize=10, fill="black").encode(
         x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
