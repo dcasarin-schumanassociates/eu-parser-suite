@@ -346,26 +346,37 @@ df = canonicalise(raw)
 with st.form("filters_form", clear_on_submit=False):
     st.header("Filters")
 
-    prog_opts    = sorted([p for p in df["programme"].dropna().unique().tolist() if p != ""])
-    cluster_opts = sorted([c for c in df.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c != ""])
-    type_opts    = sorted([t for t in df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t != ""])
-    trl_opts     = sorted([str(int(x)) for x in df.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
-    dest_opts    = sorted([d for d in df.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d != ""])
+    # --- Programme + Cluster in same row
+    col1, col2 = st.columns(2)
+    with col1:
+        programmes = st.multiselect("Programme", options=prog_opts, default=prog_opts)
+    with col2:
+        clusters = st.multiselect("Cluster", options=cluster_opts)
 
-    programmes = st.multiselect("Programme", options=prog_opts, default=prog_opts)
-    clusters   = st.multiselect("Cluster", options=cluster_opts)
-    types      = st.multiselect("Type of Action", options=type_opts)
-    trls       = st.multiselect("TRL", options=trl_opts)
-    dests      = st.multiselect("Destination / Strand", options=dest_opts)
+    # --- Type of Action + TRL in same row
+    col3, col4 = st.columns(2)
+    with col3:
+        types = st.multiselect("Type of Action", options=type_opts)
+    with col4:
+        trls = st.multiselect("TRL", options=trl_opts)
 
+    # --- Destination alone
+    dests = st.multiselect("Destination / Strand", options=dest_opts)
+
+    # --- Three keyword boxes in same row
     st.subheader("Search (multi-keyword)")
-    kw1 = st.text_input("Keyword 1")
-    kw2 = st.text_input("Keyword 2")
-    kw3 = st.text_input("Keyword 3")
+    kw1, kw2, kw3 = st.columns(3)
+    with kw1:
+        kw1_val = st.text_input("Keyword 1")
+    with kw2:
+        kw2_val = st.text_input("Keyword 2")
+    with kw3:
+        kw3_val = st.text_input("Keyword 3")
+
     combine_mode = st.radio("Combine", ["AND", "OR"], horizontal=True, index=0)
     title_code_only = st.checkbox("Search only in Title & Code", value=True)
 
-    # Date bounds for defaults
+    # --- Date bounds for defaults
     open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
     dead_all = pd.concat([
         pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -374,19 +385,19 @@ with st.form("filters_form", clear_on_submit=False):
     ], axis=0)
     dead_lo, dead_hi = safe_date_bounds(dead_all)
 
-    col1, col2 = st.columns(2)
-    with col1:
+    col5, col6 = st.columns(2)
+    with col5:
         open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-    with col2:
-        open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
+    with col6:
+        open_end   = st.date_input("Open to", value=open_hi, min_value=open_lo, max_value=open_hi)
 
-    col3, col4 = st.columns(2)
-    with col3:
+    col7, col8 = st.columns(2)
+    with col7:
         close_from = st.date_input("Close from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-    with col4:
-        close_to   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
+    with col8:
+        close_to   = st.date_input("Close to", value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
-    # Budget slider
+    # --- Budget slider
     bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
     if bud_series.empty:
         min_bud, max_bud = 0.0, 1_000_000.0
@@ -396,29 +407,10 @@ with st.form("filters_form", clear_on_submit=False):
             min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
     budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=100000.0)
 
-    # Persistent view window
-    st.subheader("View window (persistent)")
-    if "view_start" not in st.session_state or "view_end" not in st.session_state:
-        data_min = min(
-            pd.to_datetime(df.get("opening_date"), errors="coerce").min(),
-            pd.to_datetime(df.get("deadline"), errors="coerce").min(),
-            pd.to_datetime(df.get("first_deadline"), errors="coerce").min(),
-            pd.to_datetime(df.get("second_deadline"), errors="coerce").min(),
-        )
-        data_max = max(
-            pd.to_datetime(df.get("opening_date"), errors="coerce").max(),
-            pd.to_datetime(df.get("deadline"), errors="coerce").max(),
-            pd.to_datetime(df.get("first_deadline"), errors="coerce").max(),
-            pd.to_datetime(df.get("second_deadline"), errors="coerce").max(),
-        )
-        pad = pd.Timedelta(days=30)
-        st.session_state.view_start = (data_min - pad).date() if pd.notna(data_min) else open_lo
-        st.session_state.view_end   = (data_max + pad).date() if pd.notna(data_max) else open_hi
-
-    view_start = st.date_input("View from", value=st.session_state.view_start)
-    view_end   = st.date_input("View to",   value=st.session_state.view_end)
+    # --- Removed "View window" row ---
 
     applied = st.form_submit_button("Apply filters")
+
 
 # Persist criteria on Apply
 if "criteria" not in st.session_state:
