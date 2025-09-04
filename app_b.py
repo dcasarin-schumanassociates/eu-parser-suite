@@ -143,7 +143,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
         first_dt  = r.get("first_deadline")
         second_dt = r.get("second_deadline")
         two_stage = bool(r.get("two_stage"))
-        title_inbar = wrap_label(code, width=26, max_lines=3)
+        title_inbar = wrap_label(title, width=26, max_lines=3)
 
         if two_stage:
             if pd.notna(open_dt) and pd.notna(first_dt) and open_dt <= first_dt:
@@ -235,24 +235,43 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         )
     )   
 
-    bars = base.mark_bar(cornerRadius=3).encode(
-         x=alt.X("start:T",
-             axis=alt.Axis(title=None, format="%b %Y", tickCount="month",
-                           orient="top", labelFontSize=11, tickSize=6),
-             scale=alt.Scale(domain=[domain_min, domain_max])),
-         x2=alt.X2("end:T"),
-         color=alt.Color("type_of_action:N", legend=alt.Legend(title="Type of Action")),
-         opacity=alt.condition(
-             alt.datum.segment == "Stage 2",
-             alt.value(0.7),  # Stage 2 slightly darker
-             alt.value(0.5)   # Stage 1/Single full colour
-         ),
-         tooltip=[alt.Tooltip("title:N", title="Title"),
-                  alt.Tooltip("programme:N", title="Programme"),
-                  alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
-                  alt.Tooltip("start:T", title="Start", format="%d %b %Y"),
-                  alt.Tooltip("end:T", title="End", format="%d %b %Y")]
-     )
+    bars = alt.Chart(seg).mark_bar(cornerRadius=3).encode(
+        y=alt.Y(
+            "y_label:N",
+            sort=y_order,
+            axis=alt.Axis(
+                title=None,
+                labelLimit=8000,
+                labelFontSize=12,
+                labelAlign="right",
+                labelPadding=20,
+                domain=True
+            )
+        ),
+        x=alt.X(
+            "start:T",
+            axis=alt.Axis(
+                title=None, format="%b %Y", tickCount="month",
+                orient="top", labelFontSize=11, tickSize=6
+            ),
+            scale=alt.Scale(domain=[domain_min, domain_max])
+        ),
+        x2=alt.X2("end:T"),
+        color=alt.Color("type_of_action:N", legend=alt.Legend(title="Type of Action")),
+        opacity=alt.condition(
+            alt.datum.segment == "Stage 2",
+            alt.value(0.7),  # Stage 2 slightly darker
+            alt.value(0.5)   # Stage 1/Single full colour
+        ),
+        tooltip=[
+            alt.Tooltip("title:N", title="Title"),
+            alt.Tooltip("programme:N", title="Programme"),
+            alt.Tooltip("budget_per_project_eur:Q", title="Budget (€)", format=",.0f"),
+            alt.Tooltip("start:T", title="Start", format="%d %b %Y"),
+            alt.Tooltip("end:T", title="End", format="%d %b %Y")
+        ]
+    )
+
    
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111")\
                        .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
