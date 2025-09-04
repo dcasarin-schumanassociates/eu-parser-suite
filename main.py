@@ -1,4 +1,3 @@
-# main.py
 from __future__ import annotations
 import io, time
 import pandas as pd
@@ -16,18 +15,16 @@ PARSERS = {
 st.set_page_config(page_title="EU Calls Parser", layout="wide")
 st.title("EU Calls Parser (Programme Selector)")
 
-st.markdown("Pick a **programme**, upload a **PDF**, and preview the parsed table. "
+st.markdown("Pick a **programme**, upload one or more **PDFs**, and preview the parsed table. "
             "Horizon uses your working logic; Erasmus+ is a stub so you can test selection.")
 
 programme = st.selectbox("Programme", options=list(PARSERS.keys()), index=0)
 
-col1, col2, col3 = st.columns([2, 1, 1])
+col1, col2 = st.columns([2, 1])
 with col1:
     uploaded_files = st.file_uploader("Upload work programme PDFs", type=["pdf"], accept_multiple_files=True)
 with col2:
     version_label = st.text_input("Version label", value="Draft v1")
-with col3:
-    source_filename = uploaded.name if uploaded else ""
 
 if uploaded_files:
     all_dfs = []
@@ -42,10 +39,10 @@ if uploaded_files:
             )
             all_dfs.append(df)
 
-    # Combine everything into one DataFrame
+    # Combine results
     combined_df = pd.concat(all_dfs, ignore_index=True)
 
-        # Gentle normalisation for preview
+    # Gentle normalisation for preview
     for c in ["Opening Date", "Deadline 1", "Deadline 2", "Deadline"]:
         if c in combined_df.columns:
             combined_df[c] = pd.to_datetime(combined_df[c], dayfirst=True, errors="coerce")
@@ -64,5 +61,3 @@ if uploaded_files:
         file_name=f"{programme.replace(' ', '_').lower()}_parsed.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
-   
