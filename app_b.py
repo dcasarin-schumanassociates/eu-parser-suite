@@ -488,15 +488,56 @@ with tab3:
     st.subheader("Full data (expand rows)")
 
     for _, row in f.iterrows():
-        title = f"**{row.get('code','')} — {row.get('title','')}**"
+        # Title line of the expander
+        title = f"{row.get('code','')} — {row.get('title','')}"
         with st.expander(title):
-            st.markdown(f"📅 **Opening:** {row.get('opening_date'):%d %b %Y} → **Deadline:** {row.get('deadline'):%d %b %Y}")
-            if row.get("two_stage"):
-                st.markdown(f"🔄 Two-stage: Stage 1 → {row.get('first_deadline'):%d %b %Y}, Stage 2 → {row.get('second_deadline'):%d %b %Y}")
-            
-            st.markdown(f"💶 **Budget per project:** {row.get('budget_per_project_eur'):,.0f} EUR")
-            st.markdown(f"🏷️ **Programme:** {row.get('programme')} | **Cluster:** {row.get('cluster')} | **Destination:** {row.get('destination_or_strand')}")
 
-            st.markdown("---")
-            st.markdown(f"**Expected outcome:**\n{row.get('expected_outcome','-')}")
-            st.markdown(f"**Scope:**\n{row.get('scope','-')}")
+            # --- Top section: Key dates and budgets in two columns
+            col1, col2 = st.columns(2)
+            with col1:
+                if pd.notna(row.get("opening_date")):
+                    st.markdown(f"📅 **Opening:** {row.get('opening_date'):%d %b %Y}")
+                if pd.notna(row.get("deadline")):
+                    st.markdown(f"⏳ **Deadline:** {row.get('deadline'):%d %b %Y}")
+                if row.get("two_stage"):
+                    if pd.notna(row.get("first_deadline")):
+                        st.markdown(f"🔄 **Stage 1:** {row.get('first_deadline'):%d %b %Y}")
+                    if pd.notna(row.get("second_deadline")):
+                        st.markdown(f"🔄 **Stage 2:** {row.get('second_deadline'):%d %b %Y}")
+
+            with col2:
+                if pd.notna(row.get("budget_per_project_eur")):
+                    st.markdown(f"💶 **Budget per project:** {row.get('budget_per_project_eur'):,.0f} EUR")
+                if pd.notna(row.get("total_budget_eur")):
+                    st.markdown(f"📦 **Total budget:** {row.get('total_budget_eur'):,.0f} EUR")
+                if pd.notna(row.get("num_projects")):
+                    st.markdown(f"📊 **# Projects:** {int(row.get('num_projects'))}")
+
+            # --- Programme / cluster info
+            st.markdown(
+                f"🏷️ **Programme:** {row.get('programme','-')}  "
+                f"| **Cluster:** {row.get('cluster','-')}  "
+                f"| **Destination:** {row.get('destination_or_strand','-')}  "
+                f"| **Type of Action:** {row.get('type_of_action','-')}  "
+                f"| **TRL:** {row.get('trl','-')}"
+            )
+
+            # --- Expandable long text sections
+            if row.get("expected_outcome"):
+                with st.expander("🎯 Expected Outcome"):
+                    st.write(row.get("expected_outcome"))
+
+            if row.get("scope"):
+                with st.expander("🧭 Scope"):
+                    st.write(row.get("scope"))
+
+            if row.get("full_text"):
+                with st.expander("📖 Full Description"):
+                    st.write(row.get("full_text"))
+
+            # --- Meta info at bottom
+            st.caption(
+                f"📂 Source: {row.get('source_filename','-')} "
+                f"| Version: {row.get('version_label','-')} "
+                f"| Parsed on: {row.get('parsed_on_utc','-')}"
+            )
