@@ -45,16 +45,23 @@ DISPLAY_COLS = [
 ]
 
 # ---------- Helpers ----------
+import re
+
 def highlight_text(text: str, keywords: list[str], colours=None) -> str:
     """Return text with keywords highlighted using HTML span tags."""
-    if not text or not any(keywords):
+    if not text:
+        return ""
+
+    # Filter keywords: only keep non-empty strings
+    clean_keywords = [str(k).strip() for k in keywords if k and str(k).strip()]
+    if not clean_keywords:
         return text
-    
+
     if colours is None:
         colours = ["#ffff00", "#a0e7e5", "#ffb3b3"]  # yellow, teal, pink
-    
+
     highlighted = str(text)
-    for i, kw in enumerate([k for k in keywords if k.strip()]):
+    for i, kw in enumerate(clean_keywords):
         colour = colours[i % len(colours)]
         pattern = re.compile(re.escape(kw), re.IGNORECASE)
         highlighted = pattern.sub(
@@ -62,6 +69,7 @@ def highlight_text(text: str, keywords: list[str], colours=None) -> str:
             highlighted
         )
     return highlighted
+
 
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [c.strip() for c in df.columns]
