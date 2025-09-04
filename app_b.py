@@ -45,6 +45,24 @@ DISPLAY_COLS = [
 ]
 
 # ---------- Helpers ----------
+def highlight_text(text: str, keywords: list[str], colours=None) -> str:
+    """Return text with keywords highlighted using HTML span tags."""
+    if not text or not any(keywords):
+        return text
+    
+    if colours is None:
+        colours = ["#ffff00", "#a0e7e5", "#ffb3b3"]  # yellow, teal, pink
+    
+    highlighted = str(text)
+    for i, kw in enumerate([k for k in keywords if k.strip()]):
+        colour = colours[i % len(colours)]
+        pattern = re.compile(re.escape(kw), re.IGNORECASE)
+        highlighted = pattern.sub(
+            lambda m: f"<span style='background-color:{colour}; font-weight:bold;'>{m.group(0)}</span>",
+            highlighted
+        )
+    return highlighted
+
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [c.strip() for c in df.columns]
     for src, dst in COLUMN_MAP.items():
@@ -523,17 +541,28 @@ with tab3:
             )
 
             # --- Expandable long text sections
+            kw_list = [crit.get("kw1",""), crit.get("kw2",""), crit.get("kw3","")]
+
             if row.get("expected_outcome"):
                 with st.expander("🎯 Expected Outcome"):
-                    st.write(row.get("expected_outcome"))
-
+                    st.markdown(
+                        highlight_text(row.get("expected_outcome"), kw_list),
+                        unsafe_allow_html=True
+                    )
+            
             if row.get("scope"):
                 with st.expander("🧭 Scope"):
-                    st.write(row.get("scope"))
-
+                    st.markdown(
+                        highlight_text(row.get("scope"), kw_list),
+                        unsafe_allow_html=True
+                    )
+            
             if row.get("full_text"):
                 with st.expander("📖 Full Description"):
-                    st.write(row.get("full_text"))
+                    st.markdown(
+                        highlight_text(row.get("full_text"), kw_list),
+                        unsafe_allow_html=True
+                    )
 
             # --- Meta info at bottom
             st.caption(
