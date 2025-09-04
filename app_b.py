@@ -464,23 +464,25 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 with tab2:
     st.subheader("Filtered table")
 
-    gb = GridOptionsBuilder.from_dataframe(f[show_cols])
-    gb.configure_side_bar()  # optional sidebar with grouping controls
-    gb.configure_default_column(groupable=True, enableRowGroup=True)
+    show_cols = [c for c in DISPLAY_COLS if c in f.columns]
+    group_by_dest = st.checkbox("Group by Destination / Strand")
 
-    # Enable grouping by destination
-    gb.configure_column("destination_or_strand", rowGroup=True, hide=True)
-
-    gridOptions = gb.build()
-
-    AgGrid(
-        f[show_cols],
-        gridOptions=gridOptions,
-        enable_enterprise_modules=True,
-        use_checkbox=True,
-        height=800,
-        fit_columns_on_grid_load=True
-    )
+    if group_by_dest and "destination_or_strand" in f.columns:
+        for dest, group_df in f.groupby("destination_or_strand"):
+            with st.expander(f"Destination: {dest} ({len(group_df)} calls)"):
+                st.dataframe(
+                    group_df[show_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+    else:
+        st.dataframe(
+            f[show_cols],
+            use_container_width=True,
+            hide_index=True,
+            height=800
+        )
 
 with tab3:
     st.subheader("Full data (expand rows)")
