@@ -234,6 +234,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelExpr="replace(datum.label, '\\\\n', '\n')"  # 👈 this is the key
             )
         )
+    )   
 
     bars = base.mark_bar(cornerRadius=3).encode(
          x=alt.X("start:T",
