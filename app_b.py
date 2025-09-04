@@ -272,6 +272,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         ]
     )
 
+    # Horizontal grid lines (across each row/category)
+    hgrid = alt.Chart(seg).mark_rule(stroke="#E5E7EB", strokeWidth=1).encode(
+        y=alt.Y("y_label:N", sort=y_order)  # 👈 one rule per category
+    )
    
     start_labels = base.mark_text(align="right", dx=-4, dy=-8, fontSize=11, color="#111")\
                        .encode(x="start:T", text=alt.Text("start:T", format="%d %b"))
@@ -285,7 +289,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
 
     chart = (
-        month_shade + month_grid + bars + start_labels + end_labels + inbar
+        month_shade + month_grid + hgrid + bars + start_labels + end_labels + inbar
     ).properties(
         height=chart_height, width=4000
     ).configure_axis(
