@@ -221,11 +221,19 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     week_grid  = alt.Chart(pd.DataFrame({"t": weeks})).mark_rule(stroke="#E5E7EB", strokeWidth=1).encode(x="t:T")
 
     base = alt.Chart(seg).encode(
-        y=alt.Y("y_label:N", sort=y_order,
-            axis=alt.Axis(title=None,labelLimit=10000,labelFontSize=11,
-                          labelAlign="right",labelPadding=250,domain=True)),
-        color=alt.Color("programme:N", legend=alt.Legend(title="Programme")),
-    )
+        y=alt.Y(
+            "y_label:N", 
+            sort=y_order,
+            axis=alt.Axis(
+                title=None,
+                labelLimit=10000,
+                labelFontSize=11,
+                labelAlign="right",
+                labelPadding=250,
+                domain=True,
+                labelExpr="replace(datum.label, '\\\\n', '\n')"  # 👈 this is the key
+            )
+        )
 
     bars = base.mark_bar(cornerRadius=3).encode(
          x=alt.X("start:T",
