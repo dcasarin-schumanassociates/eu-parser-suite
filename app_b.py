@@ -299,7 +299,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         x='independent',
         y='shared'
     ).resolve_axis(
-        x='independent',
+        x='shared',
         y='shared'
     )
     
