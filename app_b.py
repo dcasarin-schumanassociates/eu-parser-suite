@@ -553,6 +553,8 @@ st.markdown(f"**Showing {len(f)} rows** after last applied filters.")
 # Tabs
 tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
 
+import streamlit.components.v1 as components
+
 with tab1:
     st.subheader("Gantt (Opening → Stage 1 → Stage 2 / Final)")
     segments = build_segments(f)
@@ -565,24 +567,18 @@ with tab1:
             view_end=crit["close_to"]
         )
 
-        # Add scrollable container for chart
-        st.markdown(
-            """
-            <style>
-            .scroll-container {
-                overflow-x: auto;
-                overflow-y: auto;
-                height: 1000px;   /* adjust height as needed */
-                padding: 50px;
-            }
-            </style>
+        # Render the chart in a scrollable container
+        chart_html = chart.to_html()
+        components.html(
+            f"""
+            <div style="overflow-x: auto; overflow-y: auto; max-height: 800px; padding: 0;">
+                {chart_html}
+            </div>
             """,
-            unsafe_allow_html=True
+            height=900,  # adjust container height
+            scrolling=True
         )
 
-        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-        st.altair_chart(chart, use_container_width=False)
-        st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
     st.subheader("Filtered table")
