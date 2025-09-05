@@ -495,23 +495,43 @@ with st.form("filters_form", clear_on_submit=False):
     title_code_only = st.checkbox("Search only in Title & Code", value=True)
 
     # Date filters row
-    open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
-    dead_all = pd.concat([
-        pd.to_datetime(df.get("deadline"), errors="coerce"),
-        pd.to_datetime(df.get("first_deadline"), errors="coerce"),
-        pd.to_datetime(df.get("second_deadline"), errors="coerce"),
-    ], axis=0)
-    dead_lo, dead_hi = safe_date_bounds(dead_all)
+    # --- Month–Year range slider (replaces the 4 date inputs) ---
+    # Build a continuous month list spanning all openings and deadlines
+    _open_all = pd.to_datetime(df.get("opening_date"), errors="coerce")
+    _dead_all = pd.to_datetime(pd.concat(
+        [df.get("deadline"), df.get("first_deadline"), df.get("second_deadline")],
+        axis=0
+    ), errors="coerce")
+    
+    _min_ts = pd.concat([_open_all, _dead_all]).min()
+    _max_ts = pd.concat([_open_all, _dead_all]).max()
+    
+    # Fallback in case everything is NaT
+    if pd.isna(_min_ts) or pd.isna(_max_ts):
+        _min_ts = pd.Timestamp("2000-01-01")
+        _max_ts = pd.Timestamp("2100-12-31")
+    
+    _min_month = pd.Timestamp(_min_ts).to_period("M").start_time
+    _max_month = (pd.Timestamp(_max_ts).to_period("M")).end_time
+    
+    # Generate month buckets and nice labels
+    _months = pd.period_range(_min_month, _max_month, freq="M")
+    _month_labels = [m.strftime("%b %Y") for m in _months]
+    _label_to_period = dict(zip(_month_labels, _months))
+    
+    _default_range = (_month_labels[0], _month_labels[-1])
+    
+    sel_start_label, sel_end_label = st.select_slider(
+        "Time window (month–year)",
+        options=_month_labels,
+        value=_default_range
+    )
+    
+    # Convert selected labels back to concrete timestamps
+    sel_start = _label_to_period[sel_start_label].start_time.normalize()
+    # end = end of selected month (inclusive)
+    sel_end = (_label_to_period[sel_end_label] + 1).start_time.normalize() - pd.Timedelta(seconds=1)
 
-    col10, col11, col12, col13 = st.columns(4)
-    with col10:
-        open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
-    with col11:
-        open_end   = st.date_input("Open to",   value=open_hi, min_value=open_lo, max_value=open_hi)
-    with col12:
-        close_from = st.date_input("Close from", value=dead_lo, min_value=dead_lo, max_value=dead_hi)
-    with col13:
-        close_to   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
     # Budget slider
     bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
@@ -532,10 +552,11 @@ if applied:
     st.session_state.criteria = dict(
         programmes=programmes, clusters=clusters, types=types, trls=trls, dests=dests,
         kw1=kw1, kw2=kw2, kw3=kw3, combine_mode=combine_mode, title_code_only=title_code_only,
-        open_start=open_start, open_end=open_end, close_from=close_from, close_to=close_to,
+        time_window=(sel_start, sel_end),                      # 👈 NEW
         budget_range=budget_range
     )
 
+# Recompute bounds (used for initial default window)
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
 dead_all = pd.concat([
     pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -544,16 +565,18 @@ dead_all = pd.concat([
 ], axis=0)
 dead_lo, dead_hi = safe_date_bounds(dead_all)
 
+# Initial default: from earliest opening/deadline month to latest
+_init_start = pd.Timestamp(min(open_lo, dead_lo)).to_period("M").start_time
+_init_end = (pd.Timestamp(max(open_hi, dead_hi)).to_period("M")).end_time
+
 if not st.session_state.criteria:
     st.session_state.criteria = dict(
         programmes=sorted(df["programme"].dropna().unique().tolist()),
         clusters=[], types=[], trls=[], dests=[],
-        kw1="", kw2="", kw3="", combine_mode="AND", title_code_only=True,
-        open_start=open_lo, open_end=open_hi, close_from=dead_lo, close_to=dead_hi,
+        kw1="", kw2="", kw3="", combine_mode="OR", title_code_only=False,
+        time_window=(_init_start, _init_end),                 # 👈 NEW
         budget_range=(0.0, 1_000_000.0)
     )
-
-crit = st.session_state.criteria
 
 # ---- Apply filters ----
 f = df.copy()
@@ -566,15 +589,22 @@ if crit["trls"]:
     f = f[trl_str.isin(crit["trls"])]
 if crit["dests"]:      f = f[f["destination_or_strand"].isin(crit["dests"])]
 
-f = f[(f["opening_date"] >= pd.to_datetime(crit["open_start"])) &
-      (f["opening_date"] <= pd.to_datetime(crit["open_end"]))]
+# --- Apply month–year time window ---
+_tw_start, _tw_end = st.session_state.criteria["time_window"]
 
-any_end_in = (
-    (pd.to_datetime(f.get("deadline"), errors="coerce").between(pd.to_datetime(crit["close_from"]), pd.to_datetime(crit["close_to"]), inclusive="both")) |
-    (pd.to_datetime(f.get("first_deadline"), errors="coerce").between(pd.to_datetime(crit["close_from"]), pd.to_datetime(crit["close_to"]), inclusive="both")) |
-    (pd.to_datetime(f.get("second_deadline"), errors="coerce").between(pd.to_datetime(crit["close_from"]), pd.to_datetime(crit["close_to"]), inclusive="both"))
+# Opening within window
+f = f[
+    pd.to_datetime(f.get("opening_date"), errors="coerce").between(_tw_start, _tw_end, inclusive="both")
+]
+
+# Any deadline within window
+_any_dead_in = (
+    pd.to_datetime(f.get("deadline"), errors="coerce").between(_tw_start, _tw_end, inclusive="both") |
+    pd.to_datetime(f.get("first_deadline"), errors="coerce").between(_tw_start, _tw_end, inclusive="both") |
+    pd.to_datetime(f.get("second_deadline"), errors="coerce").between(_tw_start, _tw_end, inclusive="both")
 )
-f = f[any_end_in.fillna(False)]
+f = f[_any_dead_in.fillna(False)]
+
 f = f[(f["budget_per_project_eur"].fillna(0) >= crit["budget_range"][0]) &
       (f["budget_per_project_eur"].fillna(0) <= crit["budget_range"][1])]
 
@@ -621,9 +651,9 @@ with tab1:
 
         def render_chart(seg_df, title_suffix=""):
             chart = build_altair_chart_from_segments(
-                seg_df,
-                view_start=crit["open_start"],
-                view_end=crit["close_to"]
+                segments,
+                view_start=st.session_state.criteria["time_window"][0],
+                view_end=st.session_state.criteria["time_window"][1]
             )
             if title_suffix:
                 st.markdown(f"### {title_suffix}")
