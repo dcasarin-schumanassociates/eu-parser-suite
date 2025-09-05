@@ -441,7 +441,7 @@ st.info(
     "👉 Look for *Horizon Calls - 26_27*.\n"
 )
 
-upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
+upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
 if not upl:
     st.stop()
 
@@ -540,7 +540,7 @@ if not st.session_state.criteria:
     st.session_state.criteria = dict(
         programmes=sorted(df["programme"].dropna().unique().tolist()),
         clusters=[], types=[], trls=[], dests=[],
-        kw1="", kw2="", kw3="", combine_mode="AND", title_code_only=True,
+        kw1="", kw2="", kw3="", combine_mode="OR", title_code_only=False,
         open_start=open_lo, open_end=open_hi, close_from=dead_lo, close_to=dead_hi,
         budget_range=(0.0, 1_000_000.0)
     )
