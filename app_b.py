@@ -254,7 +254,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             x=alt.X("start:T"),
             x2=alt.X2("end:T"),
             opacity=alt.Opacity("band:Q",
-                                scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]),
+                                scale=alt.Scale(domain=[0,1], range=[0.0, 0.8]),
                                 legend=None),
             color=alt.value("#9AC0CD")
         )
@@ -369,6 +369,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                        .encode(x="end:T",
                                text=alt.Text("end:T", format="%d %b %Y"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
+    
     inbar = base.mark_text(align="left",
                            baseline="middle",
                            dx=2,
