@@ -240,7 +240,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         return None
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 75
+    row_height = 50
     chart_height = max(1500, unique_rows * row_height)
     domain_min = seg["start"].min()
     domain_max = seg["end"].max()
