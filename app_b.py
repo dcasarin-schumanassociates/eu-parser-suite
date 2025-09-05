@@ -72,21 +72,13 @@ def clean_footer(text: str) -> str:
 
 
 def normalize_bullets(text: str) -> str:
-    """Replace odd bullets with clean Markdown dashes and add newlines."""
-    if not text:
+    if not isinstance(text, str) or text == "":
         return ""
-
-    # Replace common oddball bullets
-    for ch in ["▪", "◦", "●", "•", ""]:
-        text = text.replace(ch, "- ")
-
-    # Normalise whitespace
-    text = re.sub(r"\s+", " ", text)
-
-    # Add line breaks before bullets and numbered lists
-    text = re.sub(r"(\s*[-*]\s+)", r"\n\1", text)
-    text = re.sub(r"(\s*\d+\.\s+)", r"\n\1", text)
-
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(?m)^[ \t]*[▪◦●•]\s*", "- ", text)  # only at line start
+    text = re.sub(r"[ \t]+", " ", text)                  # collapse spaces, keep \n
+    text = re.sub(r"(?<!\n)([ \t]+[-*]\s+)", r"\n- ", text)
+    text = re.sub(r"(?<!\n)([ \t]+)(\d+\.\s+)", r"\n\2", text)
     return text.strip()
 
 
