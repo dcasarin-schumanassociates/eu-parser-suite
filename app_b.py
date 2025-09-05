@@ -198,6 +198,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
                     "title": title, "title_inbar": title_inbar,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "type_of_action" : r.get("type_of_action"),  # 👈 add this
+                    "cluster': r.get("cluster"),
                     "bar_days": bar_days,
                     "mid": open_dt + (first_dt - open_dt)/2,
                 })
@@ -210,7 +211,8 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
                     "segment": "Stage 2",
                     "title": title,"title_inbar": "",
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
-                    "type_of_action" : r.get("type_of_action"),  # 👈 add this
+                    "type_of_action" : r.get("type_of_action"),
+                    "cluster': r.get("cluster"),
                     "bar_days": bar_days,
                     "mid": first_dt + (segB_end - first_dt)/2,
                 })
@@ -224,6 +226,7 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
                     "title": title, "title_inbar": title_inbar,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "type_of_action" : r.get("type_of_action"),  # 👈 add this
+                    "cluster': r.get("cluster"),
                     "bar_days": bar_days,
                     "mid": open_dt + (final_dt - open_dt)/2,
                 })
