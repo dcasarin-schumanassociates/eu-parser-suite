@@ -241,7 +241,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
     row_height = 50
-    chart_height = max(560, unique_rows * row_height)
+    chart_height = max(1800, unique_rows * row_height)
     domain_min = seg["start"].min()
     domain_max = seg["end"].max()
     min_x = min(seg["start"].min(), seg["end"].min())
@@ -389,7 +389,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     ).resolve_axis(
         x='shared',
         y='shared'
-    )
+    ).chart.configure_padding(top=50)
     
     return chart
 
