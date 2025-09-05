@@ -313,10 +313,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelFontSize=13,
                 labelAlign="right",
                 labelPadding=100,
-                domain=True,
-                rangeStep=5    # 👈 max thickness per row in pixels
+                domain=True                
             ),
-            scale=alt.Scale(domain=y_order)   # only band, no domain
+            scale=alt.Scale(domain=y_order,
+                            rangeStep=5    # 👈 max thickness per row in pixels)   # only band, no domain
         ),
         x=alt.X(
             "start:T",
