@@ -255,6 +255,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             x2=alt.X2("end:T"),
             opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]), legend=None),
             color=alt.value("#000"),
+            tooltip=None,
         )
     )
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
@@ -276,7 +277,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         baseline="top",
         dy=-20,
         fontSize=12,
-        fontWeight="bold"
+        fontWeight="bold",
     ).encode(
         x="mid:T",      # 👈 midpoint, not the start
         text="label:N",
@@ -294,7 +295,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelFontSize=11,
                 labelAlign="right",
                 labelPadding=50,
-                domain=True,                             
+                domain=True,
+                tooltip=None,
             ),
             scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)))   
 
