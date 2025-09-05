@@ -298,7 +298,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             ),
             scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)))   
 
-    bars = alt.Chart(seg).mark_bar(cornerRadius=3, color="#1E90FF").encode(
+    bars = alt.Chart(seg).mark_bar(cornerRadius=7, color="#1E90FF").encode(
         y=alt.Y(
             "y_label:N",
             sort=y_order,
@@ -318,7 +318,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 title=None,
                 format="%b %Y",    # 👈 month + year
                 tickCount="month",
-                orient="bottom",      # 👈 force top
+                orient="middle",      # 👈 force top
                 labelFontSize=11,
                 labelPadding=80,   # 👈 extra room for labels
                 labelOverlap="greedy",   # <— allow Vega to hide some labels
@@ -362,9 +362,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                                text=alt.Text("end:T", format="%d %b %Y"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     inbar = base.mark_text(align="left",
-                           baseline="bottom",
+                           baseline="middle",
                            dx=2,
-                           dy=-35,
+                           dy=35,
                            fontSize=12, 
                            fill="black").encode(
         x=alt.X("start:T",
