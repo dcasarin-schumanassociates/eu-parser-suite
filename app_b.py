@@ -608,11 +608,11 @@ with tab2:
     st.subheader("Filtered table")
 
     show_cols = [c for c in DISPLAY_COLS if c in f.columns]
-    group_by_dest = st.checkbox("Group by Destination / Strand")
+    group_by_cluster = st.checkbox("Group by Cluster")
 
-    if group_by_dest and "destination_or_strand" in f.columns:
-        for dest, group_df in f.groupby("destination_or_strand"):
-            with st.expander(f"Destination: {dest} ({len(group_df)} calls)"):
+    if group_by_cluster and "cluster" in f.columns:
+        for clu, group_df in f.groupby("cluster"):
+            with st.expander(f"Cluster: {clu} ({len(group_df)} calls)"):
                 st.dataframe(
                     group_df[show_cols],
                     use_container_width=True,
