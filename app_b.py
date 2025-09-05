@@ -330,7 +330,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         color=alt.Color(
             "type_of_action:N",
             legend=alt.Legend(title="Type of Action",
-                              orient="top",
+                              orient="left",
                               offset=100),
             scale=alt.Scale(scheme="set2")   # 👈 bright, categorical palette
         ),
