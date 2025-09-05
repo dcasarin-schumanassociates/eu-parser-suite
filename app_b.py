@@ -330,7 +330,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         color=alt.Color(
             "type_of_action:N",
             legend=alt.Legend(title="Type of Action", orient="top"),
-            scale=alt.Scale(scheme="set1")   # 👈 bright, categorical palette
+            scale=alt.Scale(scheme="set2")   # 👈 bright, categorical palette
         ),
         opacity=alt.condition(
             alt.datum.segment == "Stage 2",
@@ -377,9 +377,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     chart = (
         month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels
     ).properties(
-        height=chart_height + 100,
-        width=5000,
-        padding={"top": 100, "bottom": 30, "left": 10, "right": 10}  # 👈 correct way
+        height=chart_height + 75,
+        width=7000,
+        padding={"top": 50, "bottom": 30, "left": 10, "right": 10}  # 👈 correct way
     ).configure_axis(
         grid=False
     ).configure_view(
