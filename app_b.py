@@ -307,7 +307,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelLimit=500,
                 labelFontSize=13,
                 labelAlign="right",
-                labelPadding=80,
+                labelPadding=250,
                 domain=True
             ),
             scale=alt.Scale(domain=y_order)   # only band, no domain
