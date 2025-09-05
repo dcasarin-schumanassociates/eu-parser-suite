@@ -329,7 +329,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         x2="end:T",
         color=alt.Color(
             "type_of_action:N",
-            legend=alt.Legend(title="Type of Action", orient="left"),
+            legend=alt.Legend(title="Type of Action", orient="top"),
             scale=alt.Scale(scheme="set1")   # 👈 bright, categorical palette
         ),
         opacity=alt.condition(
@@ -379,7 +379,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     ).properties(
         height=chart_height + 100,
         width=5000,
-        padding={"top": 60, "bottom": 30, "left": 10, "right": 10}  # 👈 correct way
+        padding={"top": 100, "bottom": 30, "left": 10, "right": 10}  # 👈 correct way
     ).configure_axis(
         grid=False
     ).configure_view(
@@ -585,7 +585,7 @@ with tab1:
                 overflow-x: auto;
                 overflow-y: auto;
                 max-height: 1600px;   /* allow scroll if chart taller */
-                padding: 10px;
+                padding: 25px;
             }
             </style>
             """,
