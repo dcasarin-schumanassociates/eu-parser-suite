@@ -580,60 +580,76 @@ with tab1:
     if segments.empty:
         st.info("No rows with valid dates to display.")
     else:
-        # 🔁 Add grouping checkbox
-        group_by_cluster = st.checkbox("Group Gantt by Cluster")
+        # --- Controls
+        group_mode = st.radio(
+            "Group charts by",
+            ["None", "Cluster", "Destination"],
+            horizontal=True,
+            index=0
+        )
+        view_mode = st.radio(
+            "View",
+            ["Dropdowns (one per group)", "Single select (one chart)"],
+            horizontal=True,
+            index=0,
+            help="Dropdowns show all groups as expanders; Single select renders only one chart."
+        )
 
-        if group_by_cluster and "cluster" in segments.columns:
-            for clu, seg_df in segments.groupby("cluster"):
-                st.markdown(f"### Cluster: {clu} ({len(seg_df)} calls)")
-                chart = build_altair_chart_from_segments(
-                    seg_df,
-                    view_start=crit["open_start"],
-                    view_end=crit["close_to"]
-                )
+        # --- Styling (scroll container)
+        st.markdown(
+            """
+            <style>
+            .scroll-container {
+                overflow-x: auto;
+                overflow-y: auto;
+                max-height: 1600px;
+                padding: 25px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
 
-                st.markdown(
-                    """
-                    <style>
-                    .scroll-container {
-                        overflow-x: auto;
-                        overflow-y: auto;
-                        max-height: 1600px;   /* allow scroll if chart taller */
-                        padding: 25px;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-                st.altair_chart(chart, use_container_width=False)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-        else:
+        def render_chart(seg_df, title_suffix=""):
             chart = build_altair_chart_from_segments(
-                segments,
+                seg_df,
                 view_start=crit["open_start"],
                 view_end=crit["close_to"]
             )
-
-            st.markdown(
-                """
-                <style>
-                .scroll-container {
-                    overflow-x: auto;
-                    overflow-y: auto;
-                    max-height: 1600px;
-                    padding: 25px;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-
+            if title_suffix:
+                st.markdown(f"### {title_suffix}")
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
             st.altair_chart(chart, use_container_width=False)
             st.markdown('</div>', unsafe_allow_html=True)
+
+        # --- No grouping
+        if group_mode == "None":
+            render_chart(segments)
+
+        else:
+            key = "cluster" if group_mode == "Cluster" else "destination_or_strand"
+            if key not in segments.columns:
+                st.warning(f"Column '{key}' not available in data.")
+            else:
+                # Order groups by size (largest first)
+                grouped = list(segments.groupby(key))
+                grouped.sort(key=lambda kv: len(kv[1]), reverse=True)
+
+                if view_mode.startswith("Single"):
+                    names = [str(k if pd.notna(k) else "—") for k, _ in grouped]
+                    sel = st.selectbox(f"Select {group_mode.lower()}",
+                                       options=names, index=0)
+                    # Map selection back to dataframe
+                    for (name, gdf), disp in zip(grouped, names):
+                        if disp == sel:
+                            render_chart(gdf, f"{group_mode}: {disp} ({len(gdf)} calls)")
+                            break
+                else:
+                    # Dropdowns (expanders), one per group
+                    for name, gdf in grouped:
+                        disp = str(name if pd.notna(name) else "—")
+                        with st.expander(f"{group_mode}: {disp} ({len(gdf)} calls)", expanded=False):
+                            render_chart(gdf)
 
 with tab2:
     st.subheader("Filtered table")
