@@ -362,7 +362,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                                text=alt.Text("end:T", format="%d %b %Y"))
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     inbar = base.mark_text(align="left",
-                           baseline="middle",
+                           baseline="bottom",
                            dx=2,
                            dy=-20,
                            fontSize=12, 
