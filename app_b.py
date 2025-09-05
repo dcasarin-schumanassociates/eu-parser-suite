@@ -377,17 +377,16 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     chart = (
         month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels
     ).properties(
-        height=chart_height + 100, width=5000
+        height=chart_height + 100,
+        width=5000,
+        padding={"top": 60, "bottom": 30, "left": 10, "right": 10}  # 👈 correct way
     ).configure_axis(
         grid=False
     ).configure_view(
+        continuousHeight=300,
+        continuousWidth=500,
         strokeWidth=0,
-        clip=False
-    ).configure_padding(   # NEW: reserve space around chart
-        top=60,            # ensures top axis/labels aren’t clipped
-        bottom=30,
-        left=10,
-        right=10
+        clip=False,
     ).resolve_scale(
         x='shared',
         y='shared'
