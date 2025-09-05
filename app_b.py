@@ -1,4 +1,4 @@
-# app_b.py — Altair Gantt (stable, tidier filters)
+e# app_b.py — Altair Gantt (stable, tidier filters)
 from __future__ import annotations
 import io
 import pandas as pd
@@ -297,9 +297,11 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 labelFontSize=11,
                 labelAlign="right",
                 labelPadding=50,
-                domain=True,                
+                domain=True                
             ),
-            scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)))   
+            scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)
+        )
+    )   
 
     bars = alt.Chart(seg).mark_bar(cornerRadius=7, color="#1E90FF").encode(
         y=alt.Y(
