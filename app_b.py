@@ -316,7 +316,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 domain=True                
             ),
             scale=alt.Scale(domain=y_order,
-                            rangeStep=5    # 👈 max thickness per row in pixels)   # only band, no domain
+                            rangeStep=30    # 👈 max thickness per row in pixels)   # only band, no domain
         ),
         x=alt.X(
             "start:T",
