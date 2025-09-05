@@ -581,7 +581,7 @@ f = f[(f["budget_per_project_eur"].fillna(0) >= crit["budget_range"][0]) &
 st.markdown(f"**Showing {len(f)} rows** after last applied filters.")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data"])
+tab1, tab2, tab3, tab4 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data", "📝 Report"])
 
 with tab1:
     st.subheader("Gantt (Opening → Stage 1 → Stage 2 / Final)")
@@ -767,4 +767,53 @@ with tab3:
                 f"| Version: {row.get('version_label','-')} "
                 f"| Parsed on: {row.get('parsed_on_utc','-')}"
             )
+
+with tab4:
+    st.subheader("Shortlist & Generate Report")
+
+    # Key columns for the report
+    report_cols = [
+        "code", "title", "opening_date", "deadline",
+        "first_deadline", "second_deadline",
+        "cluster", "destination_or_strand",
+        "budget_per_project_eur", "total_budget_eur",
+        "type_of_action", "trl"
+    ]
+    report_cols = [c for c in report_cols if c in f.columns]
+
+    # Let user select rows by Code
+    options = f["code"].dropna().unique().tolist()
+    shortlist = st.multiselect("Select calls to include", options=options)
+
+    if shortlist:
+        shortlist_df = f[f["code"].isin(shortlist)][report_cols]
+
+        st.dataframe(
+            shortlist_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Download as Excel
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine="openpyxl") as writer:
+            shortlist_df.to_excel(writer, index=False, sheet_name="report")
+        out.seek(0)
+        st.download_button(
+            "⬇️ Download report (Excel)",
+            out,
+            file_name="shortlist_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        # Optional: export as Markdown for easy copy/paste
+        md_report = shortlist_df.to_markdown(index=False)
+        st.download_button(
+            "⬇️ Download report (Markdown)",
+            md_report,
+            file_name="shortlist_report.md",
+            mime="text/markdown"
+        )
+    else:
+        st.info("👆 Select calls from the dropdown above to build your report.")
 
