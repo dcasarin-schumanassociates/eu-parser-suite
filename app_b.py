@@ -1,4 +1,4 @@
-e# app_b.py — Altair Gantt (stable, tidier filters)
+# app_b.py — Altair Gantt (stable, tidier filters)
 from __future__ import annotations
 import io
 import pandas as pd
