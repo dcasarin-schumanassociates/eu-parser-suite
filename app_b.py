@@ -240,8 +240,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         return None
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 50
-    chart_height = max(1800, unique_rows * row_height)
+    row_height = 75
+    chart_height = max(1500, unique_rows * row_height)
     domain_min = seg["start"].min()
     domain_max = seg["end"].max()
     min_x = min(seg["start"].min(), seg["end"].min())
@@ -274,7 +274,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     month_labels = alt.Chart(month_labels_df).mark_text(
         align="center",
         baseline="bottom",
-        dy=-20,
+        dy=5,
         fontSize=12,
         fontWeight="bold"
     ).encode(
@@ -383,13 +383,18 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     ).configure_view(
         strokeWidth=0,
         clip=False
+    ).configure_padding(   # NEW: reserve space around chart
+        top=60,            # ensures top axis/labels aren’t clipped
+        bottom=30,
+        left=10,
+        right=10
     ).resolve_scale(
         x='shared',
         y='shared'
     ).resolve_axis(
         x='shared',
         y='shared'
-    ).chart.configure_padding(top=50)
+    )
     
     return chart
 
@@ -580,8 +585,8 @@ with tab1:
             .scroll-container {
                 overflow-x: auto;
                 overflow-y: auto;
-                height: 15px;   /* adjust height as needed */
-                padding: 50px;
+                max-height: 1600px;   /* allow scroll if chart taller */
+                padding: 10px;
             }
             </style>
             """,
