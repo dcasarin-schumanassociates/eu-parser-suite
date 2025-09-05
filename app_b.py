@@ -414,9 +414,17 @@ st.markdown(
 st.title("Funding Dashboard")
 
 st.info(
-    "📂 Please upload the latest parsed Excel file. \n\n"
-    "➡️ You can find it in the **3.SA Practices\Central Systems and Bid Management\1. Central Systems\2. CS EU PROGRAMMES Area\4. Horizon Europe\CALENDAR OF CALLS FOR PROPOSALS\4. WPs 2026-2027\Coding Davide** folder "
-    "(look for *Horizon Calls - 26_27*). \n\n"
+    "📂 Please upload the latest parsed Excel file.\n\n"
+    "➡️ You can find it in the following folder:\n\n"
+    "- **3.SA Practices**\n"
+    "   - Central Systems and Bid Management\n"
+    "      - 1. Central Systems\n"
+    "         - 2. CS EU PROGRAMMES Area\n"
+    "            - 4. Horizon Europe\n"
+    "               - CALENDAR OF CALLS FOR PROPOSALS\n"
+    "                  - 4. WPs 2026-2027\n"
+    "                     - Coding Davide\n\n"
+    "👉 Look for *Horizon Calls - 26_27*.\n"
 )
 
 upl = st.file_uploader("Upload parsed Excel (.xlsx)", type=["xlsx"])
