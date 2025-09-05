@@ -53,9 +53,6 @@ def clean_footer(text: str) -> str:
     if not text:
         return ""
 
-    # Ensure input is string
-    text = str(text)
-
     # Match "Work Programme ... Page <num> of <num>"
     footer_pattern = re.compile(
         r"Horizon\s*Europe\s*[-–]?\s*Work Programme.*?Page\s+\d+\s+of\s+\d+",
@@ -63,6 +60,10 @@ def clean_footer(text: str) -> str:
     )
 
     cleaned = footer_pattern.sub("", text)
+
+    # Normalise whitespace
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
     # Normalise whitespace
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
