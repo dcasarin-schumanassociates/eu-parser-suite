@@ -587,7 +587,7 @@ with tab1:
         # --- Controls
         group_mode = st.radio(
             "Group charts by",
-            ["None", "Cluster", "Destination"],
+            ["None", "Cluster"],
             horizontal=True,
             index=0
         )
