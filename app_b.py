@@ -249,12 +249,14 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     bands_df = build_month_bands(min_x, max_x)
     month_shade = (
         alt.Chart(bands_df)
-        .mark_rect(),
+        .mark_rect(tooltip=False)
         .encode(
             x=alt.X("start:T"),
             x2=alt.X2("end:T"),
-            opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]), legend=None),
-            color=alt.value("#9AC0CD")            
+            opacity=alt.Opacity("band:Q",
+                                scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]),
+                                legend=None),
+            color=alt.value("#9AC0CD")
         )
     )
     
