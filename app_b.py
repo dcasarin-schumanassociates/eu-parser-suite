@@ -273,14 +273,14 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
 
     month_labels = alt.Chart(month_labels_df).mark_text(
         align="center",
-        baseline="bottom",
-        dy=50,
+        baseline="top",
+        dy=-50,
         fontSize=12,
         fontWeight="bold"
     ).encode(
         x="mid:T",      # 👈 midpoint, not the start
         text="label:N",
-        y=alt.value(0)  # fixed position at top
+        y=alt.value(-10)  # fixed position at top
     )
 
         
