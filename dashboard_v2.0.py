@@ -300,12 +300,16 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     bars = alt.Chart(seg).mark_bar(cornerRadius=10, size=bar_size).encode(
         y=alt.Y(
             "y_label:N",
+            scale=alt.Scale(band=0.6),
             sort=y_order,
             axis=alt.Axis(
-                title=None, labelLimit=500, labelFontSize=13, labelAlign="right",
+                title=None,
+                labelLimit=500,
+                labelFontSize=13,
+                labelAlign="right",
                 labelPadding=50, domain=True
             ),
-            scale=alt.Scale(domain=y_order, paddingInner=0.3, paddingOuter=0.1)
+            scale=alt.Scale(domain=y_order, paddingInner=0.3, paddingOuter=0.3)
         ),
         x=alt.X(
             "start:T",
@@ -384,7 +388,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     ).encode(
         x="t:T",
         y=alt.value(0),     # inside top edge
-        text=alt.value("Today")
+        text=alt.Text("t:T", format="%d %b %Y")
     )
     
     chart = (
