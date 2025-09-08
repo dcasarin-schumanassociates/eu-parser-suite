@@ -302,7 +302,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 title=None, labelLimit=500, labelFontSize=13, labelAlign="right",
                 labelPadding=50, domain=True
             ),
-            scale=alt.Scale(domain=y_order)
+            scale=alt.Scale(domain=y_order, paddingInner=0.3, paddingOuter=0.1)
         ),
         x=alt.X(
             "start:T",
