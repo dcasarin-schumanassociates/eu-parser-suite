@@ -729,7 +729,7 @@ with tab1:
             st.altair_chart(chart, use_container_width=True)
 
              
-       if group_mode == "None":
+    if group_mode == "None":
             render_chart(segments)
         else:
             key = "cluster"
