@@ -238,7 +238,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         return None
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
-    row_height = 50
+    row_height = 46
     bar_size     = int(row_height * 0.38)               # bar thickness ~38% of band
     label_offset = - int(bar_size / 2 + 4)              # position text just ABOVE the bar
 
@@ -335,20 +335,37 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         ]
     )
 
-    start_labels = base.mark_text(align="right", dx=-4, dy=5, fontSize=10, color="#111")\
-        .encode(x="start:T", text=alt.Text("start:T", format="%d %b %Y"))
-    end_labels   = base.mark_text(align="left",  dx=4,  dy=5, fontSize=10, color="#111")\
-        .encode(x="end:T",   text=alt.Text("end:T",   format="%d %b %Y"))
+    start_labels = base.mark_text(align="right",
+                                  dx=-4,
+                                  dy=5,
+                                  fontSize=10,
+                                  color="#111")\
+        .encode(x="start:T",
+                text=alt.Text("start:T",
+                              format="%d %b %Y"))
+    end_labels   = base.mark_text(align="left",
+                                  dx=4,
+                                  dy=5,
+                                  fontSize=10,
+                                  color="#111")\
+        .encode(x="end:T",
+                text=alt.Text("end:T",
+                              format="%d %b %Y"))
 
-    text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
-    inbar = base.mark_text(align="left",
-                           baseline="bottom",
-                           dx=2, 
-                           dy=label_offset,
-                           x=alt.X("start:T",
-                                   scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
+    text_cond = alt.condition(alt.datum.bar_days >= 10,
+                              alt.value(1),
+                              alt.value(0))
+    
+    inbar = base.mark_text(
+        align="left",
+        baseline="bottom",
+        dx=2,
+        dy=label_offset,
+        color="black"   # styling is fine here
+    ).encode(
+        x=alt.X("start:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         text=alt.Text("title_inbar:N"),
-        opacity=text_cond
+        opacity=alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     )
 
     # --- Today line (Europe/Brussels), drawn as a dashed red rule with a tooltip
@@ -760,7 +777,9 @@ with tab1:
 
         def render_chart(seg_df, title_suffix=""):
             chart = build_altair_chart_from_segments(
-                seg_df, view_start=crit["open_start"], view_end=crit["close_to"]
+                seg_df,
+                view_start=crit["open_start"],
+                view_end=crit["close_to"]
             )
             if title_suffix:
                 st.markdown(f"### {title_suffix}")
