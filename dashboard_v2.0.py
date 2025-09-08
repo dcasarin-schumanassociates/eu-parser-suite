@@ -302,12 +302,12 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
 
     bands_df = build_month_bands(min_x, max_x)
 
-    # Build the header labels only if we have at least 2 month boundaries
+    # month boundaries
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
 
-    # Background month shading
+    # Background month shading (no padding here)
     month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
         x=alt.X("start:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         x2=alt.X2("end:T"),
@@ -319,19 +319,19 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
         y=alt.Y(
             "y_label:N",
             sort=y_order,
-            axis=alt.Axis(title=None, labelLimit=200, labelFontSize=11, labelAlign="right", labelPadding=50, domain=True),
+            axis=alt.Axis(title=None, labelLimit=200, labelFontSize=11,
+                          labelAlign="right", labelPadding=50, domain=True),
             scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)
         )
     )
 
     bars = alt.Chart(seg).mark_bar(cornerRadius=7, size=26).encode(
         y=alt.Y(
-            "y_label:N",
-            sort=y_order,
-            axis=alt.Axis(title=None, labelLimit=500, labelFontSize=13, labelAlign="right", labelPadding=100, domain=True),
+            "y_label:N", sort=y_order,
+            axis=alt.Axis(title=None, labelLimit=500, labelFontSize=13,
+                          labelAlign="right", labelPadding=100, domain=True),
             scale=alt.Scale(domain=y_order)
         ),
-        # axis is toggled below depending on header availability
         x=alt.X("start:T", axis=None, scale=alt.Scale(domain=[domain_min, domain_max])),
         x2="end:T",
         color=alt.Color("type_of_action:N",
@@ -362,14 +362,14 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
         opacity=text_cond
     )
 
+    # BODY (no padding here)
     body = (month_shade + bars + start_labels + end_labels + inbar).properties(
         height=chart_height,
-        width='container',
-        padding={"top": 10, "bottom": 10, "left": 10, "right": 10}
+        width='container'
     ).configure_view(continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False)
 
-    # Case A: we have enough months to build a header band
     if len(months) >= 2:
+        # Build header labels
         mdf = pd.DataFrame({
             "month": months[:-1],
             "next_month": months[1:],
@@ -383,12 +383,13 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
             text="label:N"
         ).properties(height=28)
 
-        # Interactivity must be applied to the CHILD (body), not the VConcat container
+        # Interactivity on child; padding on parent
         body_interactive = body.interactive(bind_x=True)
-        chart = alt.vconcat(header, body_interactive).resolve_scale(x='shared')
+        chart = alt.vconcat(header, body_interactive).resolve_scale(x='shared')\
+                   .properties(padding={"top": 10, "bottom": 10, "left": 10, "right": 10})
         return chart
 
-    # Case B: too few months — no header, re-enable the bar axis at top
+    # Fallback: no header; enable an axis on bars and return with padding on chart
     bars_no_header = bars.encode(
         x=alt.X(
             "start:T",
@@ -399,11 +400,11 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
     )
     body_no_header = (month_shade + bars_no_header + start_labels + end_labels + inbar).properties(
         height=chart_height,
-        width='container',
-        padding={"top": 10, "bottom": 10, "left": 10, "right": 10}
+        width='container'
     ).configure_view(continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False)
 
-    return body_no_header.interactive(bind_x=True)
+    return body_no_header.interactive(bind_x=True)\
+                         .properties(padding={"top": 10, "bottom": 10, "left": 10, "right": 10})
 
 # ---------- Cached I/O & options ----------
 @st.cache_data(show_spinner=False)
