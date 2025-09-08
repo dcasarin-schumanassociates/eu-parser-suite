@@ -273,8 +273,8 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         (month_labels_df["next_month"] - month_labels_df["month"]) / 2
     )
     month_labels = alt.Chart(month_labels_df).mark_text(
-        align="center", baseline="top", dy=-5, fontSize=12, fontWeight="bold",
-    ).encode(x="mid:T", text="label:N", y=alt.value(-5))
+        align="center", baseline="top", dy=4, fontSize=12, fontWeight="bold",
+    ).encode(x="mid:T", text="label:N", y=alt.value(0))
 
     # Thin top axis rule to visually reinforce the top axis
     # top_axis_rule = alt.Chart(pd.DataFrame({"t":[domain_min, domain_max]})).mark_rule(stroke="#333", strokeWidth=1).encode(
@@ -318,7 +318,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             legend=alt.Legend(title="Type of Action",
                               orient="top",
                               direction="horizontal",
-                              columns=3,
+                              columns=2,
                               offset=100),
             scale=alt.Scale(scheme="set2")
         ),
