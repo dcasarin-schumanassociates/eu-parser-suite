@@ -388,7 +388,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     ).encode(
         x="t:T",
         y=alt.value(0),     # inside top edge
-        text=alt.Text("t:T", format="%d %b %Y")
+        text=alt.Text("t:T", format= 'Today: "%d %b %Y"')
     )
     
     chart = (
