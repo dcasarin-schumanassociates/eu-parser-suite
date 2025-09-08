@@ -286,7 +286,7 @@ def summarize_text_t5(text: str, approx_sentences: int = 10) -> str:
     return final.strip()
 
 # ---------- Chart builder ----------
-def build_altair_chart_from_segments(seg: pd.DataFrame):
+def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     if seg.empty:
         return None
 
@@ -300,43 +300,61 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
     min_x = min(seg["start"].min(), seg["end"].min())
     max_x = max(seg["start"].max(), seg["end"].max())
 
+    # Background month bands
     bands_df = build_month_bands(min_x, max_x)
-
-    # month boundaries
-    months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
-                           pd.Timestamp(max_x).to_period("M").end_time,
-                           freq="MS")
-
-    # Background month shading (no padding here)
-    month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
-        x=alt.X("start:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
-        x2=alt.X2("end:T"),
-        opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]), legend=None),
-        color=alt.value("#4169E1")
+    month_shade = (
+        alt.Chart(bands_df)
+        .mark_rect(tooltip=False)
+        .encode(
+            x=alt.X("start:T", scale=alt.Scale(domain=[domain_min, domain_max])),
+            x2=alt.X2("end:T"),
+            opacity=alt.Opacity("band:Q",
+                                scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]),
+                                legend=None),
+            color=alt.value("#4169E1")
+        )
     )
 
     base = alt.Chart(seg).encode(
         y=alt.Y(
             "y_label:N",
             sort=y_order,
-            axis=alt.Axis(title=None, labelLimit=200, labelFontSize=11,
-                          labelAlign="right", labelPadding=50, domain=True),
+            axis=alt.Axis(
+                title=None,
+                labelLimit=200,
+                labelFontSize=11,
+                labelAlign="right",
+                labelPadding=50,
+                domain=True
+            ),
             scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)
         )
     )
 
+    # Bars — colour only via encoding so Stage-2 opacity works
     bars = alt.Chart(seg).mark_bar(cornerRadius=7, size=26).encode(
         y=alt.Y(
-            "y_label:N", sort=y_order,
+            "y_label:N",
+            sort=y_order,
             axis=alt.Axis(title=None, labelLimit=500, labelFontSize=13,
                           labelAlign="right", labelPadding=100, domain=True),
             scale=alt.Scale(domain=y_order)
         ),
-        x=alt.X("start:T", axis=None, scale=alt.Scale(domain=[domain_min, domain_max])),
+        x=alt.X(
+            "start:T",
+            # If you want to hide the axis completely while testing, set axis=None.
+            axis=alt.Axis(
+                title=None, format="%b %Y", tickCount="month", orient="top",
+                labelFontSize=11, labelPadding=50, labelOverlap="greedy", tickSize=6
+            ),
+            scale=alt.Scale(domain=[domain_min, domain_max])
+        ),
         x2="end:T",
-        color=alt.Color("type_of_action:N",
-                        legend=alt.Legend(title="Type of Action", orient="left", offset=100),
-                        scale=alt.Scale(scheme="set2")),
+        color=alt.Color(
+            "type_of_action:N",
+            legend=alt.Legend(title="Type of Action", orient="left", offset=100),
+            scale=alt.Scale(scheme="set2")
+        ),
         opacity=alt.condition(alt.datum.segment == "Stage 2", alt.value(0.7), alt.value(1.0)),
         tooltip=[
             alt.Tooltip("title:N", title="Title"),
@@ -362,49 +380,20 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
         opacity=text_cond
     )
 
-    # BODY (no padding here)
-    body = (month_shade + bars + start_labels + end_labels + inbar).properties(
+    chart = (
+        month_shade + bars + start_labels + end_labels + inbar
+    ).properties(
         height=chart_height,
-        width='container'
-    ).configure_view(continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False)
+        width='container',
+        padding={"top": 10, "bottom": 10, "left": 10, "right": 10}
+    ).configure_view(
+        continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False
+    ).resolve_scale(
+        x='shared', y='shared'
+    ).interactive(bind_x=True)  # horizontal pan/zoom
 
-    if len(months) >= 2:
-        # Build header labels
-        mdf = pd.DataFrame({
-            "month": months[:-1],
-            "next_month": months[1:],
-            "label": [m.strftime("%b %Y") for m in months[:-1]]
-        })
-        mdf["mid"] = mdf["month"] + ((mdf["next_month"] - mdf["month"]) / 2)
-        header = alt.Chart(mdf).mark_text(
-            align="center", baseline="bottom", dy=0, fontSize=12, fontWeight="bold"
-        ).encode(
-            x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max])),
-            text="label:N"
-        ).properties(height=28)
+    return chart
 
-        # Interactivity on child; padding on parent
-        body_interactive = body.interactive(bind_x=True)
-        chart = alt.vconcat(header, body_interactive).resolve_scale(x='shared')\
-                   .properties(padding={"top": 10, "bottom": 10, "left": 10, "right": 10})
-        return chart
-
-    # Fallback: no header; enable an axis on bars and return with padding on chart
-    bars_no_header = bars.encode(
-        x=alt.X(
-            "start:T",
-            axis=alt.Axis(title=None, format="%b %Y", tickCount="month", orient="top",
-                          labelFontSize=11, labelPadding=50, labelOverlap="greedy", tickSize=6),
-            scale=alt.Scale(domain=[domain_min, domain_max])
-        )
-    )
-    body_no_header = (month_shade + bars_no_header + start_labels + end_labels + inbar).properties(
-        height=chart_height,
-        width='container'
-    ).configure_view(continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False)
-
-    return body_no_header.interactive(bind_x=True)\
-                         .properties(padding={"top": 10, "bottom": 10, "left": 10, "right": 10})
 
 # ---------- Cached I/O & options ----------
 @st.cache_data(show_spinner=False)
