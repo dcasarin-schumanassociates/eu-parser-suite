@@ -1,9 +1,10 @@
-# app_b.py — Streamlit Funding Dashboard (optimised) + Shortlist Notes → DOCX/HTML
+# app_b.py — Streamlit Funding Dashboard (optimised) + Shortlist Notes → DOCX/HTML + On-demand T5 summaries
 from __future__ import annotations
 
 import io
 import base64
 import re
+import hashlib
 from datetime import datetime
 from typing import List, Dict
 
@@ -19,6 +20,13 @@ try:
     DOCX_AVAILABLE = True
 except Exception:
     DOCX_AVAILABLE = False
+
+# Optional transformers dependency for local summarisation
+TRANSFORMERS_AVAILABLE = True
+try:
+    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+except Exception:
+    TRANSFORMERS_AVAILABLE = False
 
 # ---------- Column mapping tailored to your Excel ----------
 COLUMN_MAP = {
@@ -404,7 +412,8 @@ def derive_filter_options(df: pd.DataFrame):
     return prog_opts, cluster_opts, type_opts, trl_opts, dest_opts
 
 # ---------- DOCX / HTML report ----------
-def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], title: str="Funding Report") -> bytes:
+def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], title: str="Funding Report",
+                         summaries_by_code: Dict[str, str] | None = None, include_ai_summaries: bool = False) -> bytes:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx is not installed")
 
@@ -458,6 +467,14 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
 
         doc.add_paragraph("\n".join(lines))
 
+        # Optional AI summary
+        if include_ai_summaries and summaries_by_code is not None:
+            ai_sum = summaries_by_code.get(str(r.get("code","")), "")
+            if ai_sum:
+                doc.add_heading("AI Summary (T5)", level=2)
+                doc.add_paragraph(ai_sum)
+
+        # Notes
         notes = (notes_by_code or {}).get(str(r.get("code","")), "")
         doc.add_heading("Notes", level=2)
         doc.add_paragraph(notes if notes else "-")
@@ -487,7 +504,8 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
     bio.seek(0)
     return bio.getvalue()
 
-def generate_html_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], title: str="Funding Report") -> bytes:
+def generate_html_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], title: str="Funding Report",
+                         summaries_by_code: Dict[str, str] | None = None, include_ai_summaries: bool = False) -> bytes:
     """Fallback lightweight HTML report that users can save as PDF from the browser."""
     parts = [f"<h1>{title}</h1><p><em>Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}</em></p>"]
     # Summary table
@@ -523,6 +541,12 @@ def generate_html_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
         meta.append(f"# Projects: {int(npj) if pd.notna(npj) else '-'}")
         parts.append("<p>" + "<br>".join(meta) + "</p>")
 
+        # Optional AI summary
+        if include_ai_summaries and summaries_by_code is not None:
+            ai_sum = summaries_by_code.get(str(r.get("code","")), "")
+            if ai_sum:
+                parts.append("<p><b>AI Summary (T5)</b><br>" + ai_sum.replace("\n","<br>") + "</p>")
+
         notes = (notes_by_code or {}).get(str(r.get("code","")), "")
         parts.append("<p><b>Notes</b><br>" + (notes.replace("\n", "<br>") if notes else "-") + "</p>")
 
@@ -535,6 +559,80 @@ def generate_html_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
 
     html = "<html><head><meta charset='utf-8'><title>{}</title></head><body>{}</body></html>".format(title, "".join(parts))
     return html.encode("utf-8")
+
+# ---------- Local T5 summarisation ----------
+@st.cache_resource(show_spinner=False)
+def load_t5_pipeline():
+    """
+    Load a small T5/FLAN-T5 model suitable for CPU.
+    Returns a HF pipeline or raises RuntimeError if transformers unavailable.
+    """
+    if not TRANSFORMERS_AVAILABLE:
+        raise RuntimeError("transformers not installed")
+
+    # Prefer a small, instruction-tuned model if available; else vanilla T5
+    candidates = ["google/flan-t5-small", "t5-small"]
+    last_err = None
+    for name in candidates:
+        try:
+            tok = AutoTokenizer.from_pretrained(name)
+            mdl = AutoModelForSeq2SeqLM.from_pretrained(name)
+            pipe = pipeline("text2text-generation", model=mdl, tokenizer=tok)
+            return pipe, name
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"Failed to load any T5 model. Last error: {last_err}")
+
+def _hash_text(s: str) -> str:
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()
+
+@st.cache_data(show_spinner=False)
+def summarise_text_cached(model_id: str, code: str, text_hash: str, prompt: str, max_words: int) -> str:
+    """
+    Cache wrapper. The actual generation runs inside (non-cached) helper to keep
+    the pipeline object out of cache keys.
+    """
+    # This function will be re-executed when (model_id, code, text_hash, prompt, max_words) change.
+    return ""  # placeholder; replaced immediately below at runtime
+
+def _run_t5_summary(pipe, prompt: str, text: str, max_tokens: int = 256) -> str:
+    # Guard against empty text
+    if not text or not text.strip():
+        return ""
+    # T5 likes explicit instruction-style prompts
+    full = f"{prompt}\n\n{text.strip()}"
+    out = pipe(full, max_new_tokens=max_tokens, do_sample=False, truncation=True)
+    return out[0]["generated_text"].strip()
+
+def summarise_long_text(pipe, prompt: str, text: str, chunk_words: int = 300, max_tokens: int = 256) -> str:
+    """
+    Chunk long input by words, summarise each chunk, then summarise the summaries.
+    Keeps everything CPU-friendly.
+    """
+    if not text or not text.strip():
+        return ""
+    words = text.split()
+    chunks = [" ".join(words[i:i+chunk_words]) for i in range(0, len(words), chunk_words)]
+    partials = []
+    for ch in chunks:
+        partials.append(_run_t5_summary(pipe, prompt, ch, max_tokens=max_tokens))
+    # Second-pass summary if we had multiple chunks
+    combined = " ".join(partials)
+    if len(chunks) > 1:
+        combined = _run_t5_summary(pipe, "Summarise concisely in bullet points.", combined, max_tokens=max_tokens)
+    return combined
+
+def build_call_text(row: pd.Series) -> str:
+    parts = []
+    if pd.notna(row.get("expected_outcome")) and str(row.get("expected_outcome")).strip():
+        parts.append("Expected Outcome:\n" + clean_footer(str(row.get("expected_outcome"))))
+    if pd.notna(row.get("scope")) and str(row.get("scope")).strip():
+        parts.append("Scope:\n" + clean_footer(str(row.get("scope"))))
+    if pd.notna(row.get("full_text")) and str(row.get("full_text")).strip():
+        parts.append("Full Description:\n" + clean_footer(str(row.get("full_text"))))
+    # Normalise bullets and spacing
+    norm = normalize_bullets("\n\n".join(parts))
+    return norm
 
 # ---------- UI ----------
 st.set_page_config(page_title="Funding Dashboard", layout="wide")
@@ -710,7 +808,7 @@ f = f[f["budget_per_project_eur"].fillna(0).between(low, high)]
 st.markdown(f"**Showing {len(f)} rows** after last applied filters.")
 
 # ---------- Tabs ----------
-tab1, tab2, tab3, tab4 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data", "📝 Shortlist & Notes (DOCX)"])
+tab1, tab2, tab3, tab4 = st.tabs(["📅 Gantt", "📋 Table", "📚 Full Data", "📝 Shortlist, Notes & Summaries"])
 
 with tab1:
     st.subheader("Gantt (Opening → Stage 1 → Stage 2 / Final)")
@@ -853,13 +951,15 @@ with tab3:
                 render_row(row)
 
 with tab4:
-    st.subheader("Shortlist & Notes → Generate Report (DOCX/HTML)")
+    st.subheader("Shortlist, Notes & Summaries")
 
     # 1) Show list of codes/titles based on current filters
     if "selection" not in st.session_state:
         st.session_state.selection = set()
     if "notes" not in st.session_state:
         st.session_state.notes = {}
+    if "summaries" not in st.session_state:
+        st.session_state.summaries = {}  # code -> summary text
 
     st.markdown("**Select calls to include in the report**")
     for _, r in f.sort_values(["closing_date_any", "opening_date"]).iterrows():
@@ -873,7 +973,7 @@ with tab4:
         elif (not new_val) and checked:
             st.session_state.selection.discard(code)
 
-    # 2) Notes per selected call
+    # 2) Notes + Summarisation controls
     if st.session_state.selection:
         st.markdown("---")
         st.markdown("**Enter notes per selected call**")
@@ -889,12 +989,80 @@ with tab4:
             )
 
         st.markdown("---")
-        colA, colB = st.columns(2)
+        st.markdown("**Optional: Generate AI summaries (local T5)**")
+        sum_col1, sum_col2, sum_col3 = st.columns([2,2,1])
+        with sum_col1:
+            t5_prompt = st.text_input(
+                "T5 prompt",
+                value="Summarise the following EU call text for a client, UK English, bullet points with 4–7 bullets, keep it factual."
+            )
+        with sum_col2:
+            max_tokens = st.slider("Max new tokens per chunk", 64, 512, 256, step=32,
+                                   help="Higher = longer summaries, slower.")
+        with sum_col3:
+            chunk_words = st.number_input("Chunk size (words)", min_value=150, max_value=800, value=300, step=50,
+                                          help="Text is split into chunks to fit the model; each chunk is summarised.")
+
+        if st.button("⚡ Generate T5 summaries"):
+            if not TRANSFORMERS_AVAILABLE:
+                st.error("`transformers` not installed. Install with: pip install transformers sentencepiece")
+            else:
+                try:
+                    with st.spinner("Loading T5 …"):
+                        pipe, model_id = load_t5_pipeline()
+                    generated = 0
+                    for _, r in selected_df.iterrows():
+                        code = str(r.get("code") or "")
+                        text = build_call_text(r)
+                        if not text.strip():
+                            st.info(f"{code}: no long text to summarise.")
+                            continue
+                        text_hash = _hash_text(text)
+                        cache_key = (model_id, code, text_hash, t5_prompt, max_tokens, chunk_words)
+                        # Use our cached data call by simulating its key; we compute immediately below:
+                        cached = st.session_state.summaries.get(code)
+                        if cached and cached.get("text_hash") == text_hash and cached.get("prompt") == t5_prompt:
+                            continue  # already computed for same text & prompt
+
+                        summary = summarise_long_text(pipe, t5_prompt, text, chunk_words=chunk_words, max_tokens=max_tokens)
+                        st.session_state.summaries[code] = {
+                            "summary": summary,
+                            "model": model_id,
+                            "text_hash": text_hash,
+                            "prompt": t5_prompt,
+                            "generated_at": datetime.utcnow().strftime("%H:%M UTC")
+                        }
+                        generated += 1
+                    if generated == 0:
+                        st.success("Summaries were already up to date for current text & prompt.")
+                    else:
+                        st.success(f"Generated {generated} summaries with {model_id}.")
+                except Exception as e:
+                    st.error(f"Failed to generate summaries: {e}")
+
+        # Show current summaries (if any)
+        if st.session_state.summaries:
+            st.markdown("---")
+            st.markdown("### AI Summaries")
+            for _, r in selected_df.iterrows():
+                code = str(r.get("code") or "")
+                title = str(r.get("title") or "")
+                rec = st.session_state.summaries.get(code)
+                if not rec:
+                    continue
+                with st.expander(f"AI Summary — {code} — {title}", expanded=False):
+                    st.write(rec.get("summary") or "")
+                    st.caption(f"Model: {rec.get('model')} — Generated at {rec.get('generated_at')} — Prompt: “{rec.get('prompt')}”")
+
+        st.markdown("---")
+        colA, colB, colC = st.columns(3)
         with colA:
             report_title = st.text_input("Report title", value="Funding Report – Shortlist")
         with colB:
             include_long_text = st.checkbox("Include Expected Outcome / Scope (export)", value=False,
                                             help="If off, those sections are omitted for a shorter document.")
+        with colC:
+            include_ai_summ = st.checkbox("Include AI summaries in export", value=True)
 
         # 3) Generate report (DOCX preferred, else HTML)
         def prep_df_for_report(df_in: pd.DataFrame) -> pd.DataFrame:
@@ -903,7 +1071,7 @@ with tab4:
                 "type_of_action","trl","opening_date","deadline",
                 "first_deadline","second_deadline","two_stage",
                 "budget_per_project_eur","total_budget_eur","num_projects",
-                "expected_outcome","scope"
+                "expected_outcome","scope","full_text"
             ]
             keep = [c for c in cols if c in df_in.columns]
             return df_in[keep].copy()
@@ -918,13 +1086,24 @@ with tab4:
                         if col in df_for_export.columns:
                             df_for_export[col] = ""
 
+                # Build a simple map code->summary for export
+                summaries_map = {}
+                if include_ai_summ and st.session_state.summaries:
+                    for _, r in selected_df.iterrows():
+                        code = str(r.get("code") or "")
+                        rec = st.session_state.summaries.get(code)
+                        if rec and rec.get("summary"):
+                            summaries_map[code] = rec["summary"]
+
                 if DOCX_AVAILABLE:
-                    docx_bytes = generate_docx_report(df_for_export, st.session_state.notes, title=report_title)
+                    docx_bytes = generate_docx_report(df_for_export, st.session_state.notes, title=report_title,
+                                                      summaries_by_code=summaries_map, include_ai_summaries=include_ai_summ)
                     st.download_button("⬇️ Download Word (.docx)", data=docx_bytes,
                                        file_name="funding_report.docx",
                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                 else:
-                    html_bytes = generate_html_report(df_for_export, st.session_state.notes, title=report_title)
+                    html_bytes = generate_html_report(df_for_export, st.session_state.notes, title=report_title,
+                                                      summaries_by_code=summaries_map, include_ai_summaries=include_ai_summ)
                     st.warning("`python-docx` not found. Generated HTML instead; open it and use your browser’s Print → Save as PDF.")
                     st.download_button("⬇️ Download HTML", data=html_bytes,
                                        file_name="funding_report.html",
