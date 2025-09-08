@@ -384,7 +384,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     )
     
     today_label = alt.Chart(today_df).mark_text(
-        align="left", baseline="bottom", dx=4, dy=0, fontSize=11, fontWeight="bold", color="#d62728"
+        align="left", baseline="top", dx=4, dy=0, fontSize=11, fontWeight="bold", color="#d62728"
     ).encode(
         x="t:T",
         y=alt.value(0),     # inside top edge
