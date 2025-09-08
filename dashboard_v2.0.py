@@ -255,7 +255,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             opacity=alt.Opacity("band:Q",
                                 scale=alt.Scale(domain=[0,1], range=[0.0, 0.08]),
                                 legend=None),
-            color=alt.value("#4169E1")
+            color=alt.value("#00008B")
         )
     )
 
