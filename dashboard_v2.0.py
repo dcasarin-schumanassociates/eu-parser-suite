@@ -1,7 +1,18 @@
-# app_b.py — Streamlit Funding Dashboard (optimised) + Shortlist Notes → DOCX/HTML + On-demand T5 summaries
+# app_b.py — Streamlit Funding Dashboard (optimised)
+# - Two-stage Gantt (same row, Stage 2 dimmed)
+# - Wide + scrollable chart
+# - Tab 3: Group-by-Cluster
+# - Tab 4: Shortlist + Notes + On-demand Summaries (DistilBART/BART/PEGASUS)
+# - DOCX/HTML export (optional include AI summaries)
+# Fixes:
+#   * Regex warning via non-capturing groups
+#   * Streamlit width API (no more use_container_width)
+#   * HF 429 handling + Offline-cache option
+
 from __future__ import annotations
 
 import io
+import os
 import base64
 import re
 import hashlib
@@ -27,33 +38,6 @@ try:
     from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 except Exception:
     SUMMARISER_AVAILABLE = False
-
-@st.cache_resource(show_spinner=False)
-def load_summarizer_pipeline():
-    """
-    Load a small/medium summarisation model suitable for CPU.
-    Order: DistilBART (fast) → BART-Large (better) → PEGASUS (also strong).
-    """
-    if not SUMMARISER_AVAILABLE:
-        raise RuntimeError("transformers not installed")
-
-    candidates = [
-        ("sshleifer/distilbart-cnn-12-6", "summarization"),   # fast, good default
-        ("facebook/bart-large-cnn", "summarization"),         # higher quality, slower
-        ("google/pegasus-xsum", "summarization"),             # short, sharp summaries
-        ("google/pegasus-cnn_dailymail", "summarization"),    # slightly longer summaries
-    ]
-    last_err = None
-    for name, task in candidates:
-        try:
-            tok = AutoTokenizer.from_pretrained(name)
-            mdl = AutoModelForSeq2SeqLM.from_pretrained(name)
-            pipe = pipeline(task, model=mdl, tokenizer=tok)
-            # model_max_length helps choose chunk sizes
-            return pipe, name, tok.model_max_length
-        except Exception as e:
-            last_err = e
-    raise RuntimeError(f"Failed to load any summariser. Last error: {last_err}")
 
 # ---------- Column mapping tailored to your Excel ----------
 COLUMN_MAP = {
@@ -98,11 +82,6 @@ def nl_to_br(s: str) -> str:
     return "" if not s else s.replace("\n", "<br>")
 
 def clean_footer(text: str) -> str:
-    """
-    Remove footer lines like:
-    '... Work Programme 2026-2027 ... Page xx of yy ...'
-    even if embedded in a longer line.
-    """
     if not text:
         return ""
     footer_pattern = re.compile(
@@ -116,21 +95,20 @@ def normalize_bullets(text: str) -> str:
     if not isinstance(text, str) or text == "":
         return ""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"(?m)^[ \t]*[▪◦●•]\s*", "- ", text)  # only at line start
-    text = re.sub(r"[ \t]+", " ", text)                  # collapse spaces, keep \n
+    text = re.sub(r"(?m)^[ \t]*[▪◦●•]\s*", "- ", text)
+    text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"(?<!\n)([ \t]+[-*]\s+)", r"\n- ", text)
     text = re.sub(r"(?<!\n)([ \t]+)(\d+\.\s+)", r"\n\2", text)
     return text.strip()
 
 def highlight_text(text: str, keywords: list[str], colours=None) -> str:
-    """Return text with keywords highlighted using HTML span tags."""
     if not text:
         return ""
     clean_keywords = [str(k).strip() for k in keywords if k and str(k).strip()]
     if not clean_keywords:
         return text
     if colours is None:
-        colours = ["#ffff00", "#a0e7e5", "#ffb3b3"]  # yellow, teal, pink
+        colours = ["#ffff00", "#a0e7e5", "#ffb3b3"]
     highlighted = str(text)
     for i, kw in enumerate(clean_keywords):
         colour = colours[i % len(colours)]
@@ -183,21 +161,22 @@ def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
     start = pd.Timestamp(min_x).to_period("M").start_time
     end   = (pd.Timestamp(max_x).to_period("M") + 1).start_time
     months = pd.date_range(start, end, freq="MS")
-    rows = []
-    for i in range(len(months) - 1):
-        rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        [{"start": months[i], "end": months[i+1], "band": i % 2} for i in range(len(months)-1)]
+    )
 
-# -------- Vectorised multi-keyword search --------
+# -------- Vectorised multi-keyword search (no regex groups warning) --------
 def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
     terms = [t.strip().lower() for t in terms if t and str(t).strip()]
     if not terms:
         return df
     hay = df["_search_title"] if title_code_only else df["_search_all"]
     if mode.upper() == "AND":
-        pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
+        # Lookaheads are non-capturing; wrap the whole with non-capturing group to avoid warnings
+        pattern = r"^(?:" + "".join([f"(?=.*{re.escape(t)})" for t in terms]) + r").*"
     else:
-        pattern = "(" + "|".join(re.escape(t) for t in terms) + ")"
+        # Use non-capturing group for the alternation
+        pattern = "(?:" + "|".join(re.escape(t) for t in terms) + ")"
     mask = hay.str.contains(pattern, regex=True, na=False)
     return df[mask]
 
@@ -220,44 +199,38 @@ def build_segments(df: pd.DataFrame) -> pd.DataFrame:
 
         if two_stage:
             if pd.notna(open_dt) and pd.notna(first_dt) and open_dt <= first_dt:
-                bar_days = (first_dt - open_dt).days
                 rows.append({
                     "y_label": y_label, "programme": prog,
-                    "start": open_dt, "end": first_dt,
-                    "segment": "Stage 1",
+                    "start": open_dt, "end": first_dt, "segment": "Stage 1",
                     "title": title, "title_inbar": title_inbar,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "type_of_action" : r.get("type_of_action"),
                     "cluster": clu,
-                    "bar_days": bar_days,
+                    "bar_days": (first_dt - open_dt).days,
                     "mid": open_dt + (first_dt - open_dt)/2,
                 })
             segB_end = second_dt if pd.notna(second_dt) else (final_dt if pd.notna(final_dt) else None)
             if pd.notna(first_dt) and pd.notna(segB_end) and first_dt <= segB_end:
-                bar_days = (segB_end - first_dt).days
                 rows.append({
                     "y_label": y_label, "programme": prog,
-                    "start": first_dt, "end": segB_end,
-                    "segment": "Stage 2",
+                    "start": first_dt, "end": segB_end, "segment": "Stage 2",
                     "title": title,"title_inbar": "",
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "type_of_action" : r.get("type_of_action"),
                     "cluster": clu,
-                    "bar_days": bar_days,
+                    "bar_days": (segB_end - first_dt).days,
                     "mid": first_dt + (segB_end - first_dt)/2,
                 })
         else:
             if pd.notna(open_dt) and pd.notna(final_dt) and open_dt <= final_dt:
-                bar_days = (final_dt - open_dt).days
                 rows.append({
                     "y_label": y_label, "programme": prog,
-                    "start": open_dt, "end": final_dt,
-                    "segment": "Single",
+                    "start": open_dt, "end": final_dt, "segment": "Single",
                     "title": title, "title_inbar": title_inbar,
                     "budget_per_project_eur": r.get("budget_per_project_eur"),
                     "type_of_action" : r.get("type_of_action"),
                     "cluster": clu,
-                    "bar_days": bar_days,
+                    "bar_days": (final_dt - open_dt).days,
                     "mid": open_dt + (final_dt - open_dt)/2,
                 })
 
@@ -304,14 +277,11 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         "next_month": months[1:],
         "label": [m.strftime("%b %Y") for m in months[:-1]]
     })
-    month_labels_df["mid"] = month_labels_df["month"] + (
-        (month_labels_df["next_month"] - month_labels_df["month"]) / 2
-    )
+    month_labels_df["mid"] = month_labels_df["month"] + ((month_labels_df["next_month"] - month_labels_df["month"]) / 2)
     month_labels = alt.Chart(month_labels_df).mark_text(
         align="center", baseline="top", dy=-20, fontSize=12, fontWeight="bold",
     ).encode(x="mid:T", text="label:N", y=alt.value(-10))
 
-    # Thin top axis rule to visually reinforce the top axis
     top_axis_rule = alt.Chart(pd.DataFrame({"t":[domain_min, domain_max]})).mark_rule(stroke="#333", strokeWidth=1).encode(
         x="t:T"
     )
@@ -320,31 +290,22 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         y=alt.Y(
             "y_label:N",
             sort=y_order,
-            axis=alt.Axis(
-                title=None, labelLimit=200, labelFontSize=11, labelAlign="right",
-                labelPadding=50, domain=True
-            ),
+            axis=alt.Axis(title=None, labelLimit=200, labelFontSize=11, labelAlign="right", labelPadding=50, domain=True),
             scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)
         )
     )
 
-    # Bars: colour ONLY via encoding so Stage-2 opacity works (no fixed mark color)
     bars = alt.Chart(seg).mark_bar(cornerRadius=7, size=26).encode(
         y=alt.Y(
             "y_label:N",
             sort=y_order,
-            axis=alt.Axis(
-                title=None, labelLimit=500, labelFontSize=13, labelAlign="right",
-                labelPadding=100, domain=True
-            ),
+            axis=alt.Axis(title=None, labelLimit=500, labelFontSize=13, labelAlign="right", labelPadding=100, domain=True),
             scale=alt.Scale(domain=y_order)
         ),
         x=alt.X(
             "start:T",
-            axis=alt.Axis(
-                title=None, format="%b %Y", tickCount="month", orient="top",
-                labelFontSize=11, labelPadding=50, labelOverlap="greedy", tickSize=6
-            ),
+            axis=alt.Axis(title=None, format="%b %Y", tickCount="month", orient="top",
+                          labelFontSize=11, labelPadding=50, labelOverlap="greedy", tickSize=6),
             scale=alt.Scale(domain=[domain_min, domain_max])
         ),
         x2="end:T",
@@ -380,17 +341,11 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         month_shade + month_grid + top_axis_rule + bars + start_labels + end_labels + inbar + month_labels
     ).properties(
         height=chart_height + 75,
-        width='container',  # fill available width
+        width='container',
         padding={"top": 50, "bottom": 30, "left": 10, "right": 10}
-    ).configure_axis(
-        grid=False
-    ).configure_view(
+    ).configure_axis(grid=False).configure_view(
         continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False,
-    ).resolve_scale(
-        x='shared', y='shared'
-    ).resolve_axis(
-        x='shared', y='shared'
-    ).interactive(bind_x=True)  # horizontal pan/zoom
+    ).resolve_scale(x='shared', y='shared').resolve_axis(x='shared', y='shared').interactive(bind_x=True)
 
     return chart
 
@@ -406,24 +361,14 @@ def load_sheet(file_bytes: bytes, sheet_name: str) -> pd.DataFrame:
     raw = pd.read_excel(xls, sheet_name=sheet_name)
     df = canonicalise(raw)
 
-    # Build searchable haystacks once
     present = [c for c in SEARCHABLE_COLUMNS if c in df.columns]
-    if present:
-        df["_search_all"] = df[present].astype(str).agg(" ".join, axis=1).str.lower()
-    else:
-        df["_search_all"] = ""
+    df["_search_all"] = df[present].astype(str).agg(" ".join, axis=1).str.lower() if present else ""
     title_cols = [c for c in ["code", "title"] if c in df.columns]
-    if title_cols:
-        df["_search_title"] = df[title_cols].astype(str).agg(" ".join, axis=1).str.lower()
-    else:
-        df["_search_title"] = ""
+    df["_search_title"] = df[title_cols].astype(str).agg(" ".join, axis=1).str.lower() if title_cols else ""
 
-    # Convenience "any closing" column for filtering and sorting
     close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in df.columns]
     if close_cols:
-        df["closing_date_any"] = pd.to_datetime(
-            df[close_cols].stack(), errors="coerce"
-        ).groupby(level=0).min()
+        df["closing_date_any"] = pd.to_datetime(df[close_cols].stack(), errors="coerce").groupby(level=0).min()
     else:
         df["closing_date_any"] = pd.NaT
 
@@ -443,16 +388,12 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
                          summaries_by_code: Dict[str, str] | None = None, include_ai_summaries: bool = False) -> bytes:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx is not installed")
-
     doc = Document()
-    # Title
     h = doc.add_heading(title, level=0)
     h.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
     p = doc.add_paragraph(f"Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}")
     p.runs[0].font.size = Pt(9)
 
-    # Summary table
     table = doc.add_table(rows=1, cols=4)
     hdr = table.rows[0].cells
     for i, t in enumerate(["Code", "Title", "Opening", "Deadline"]):
@@ -468,11 +409,9 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
         row[2].text = opening_s
         row[3].text = deadline_s
 
-    # Detailed sections
     for _, r in calls_df.iterrows():
         doc.add_page_break()
         doc.add_heading(f"{r.get('code','')} — {r.get('title','')}", level=1)
-
         lines = []
         lines.append(f"Programme: {r.get('programme','-')}")
         lines.append(f"Cluster: {r.get('cluster','-')}")
@@ -491,40 +430,32 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
         lines.append(f"Budget per project: {bpp:,.0f} EUR" if pd.notna(bpp) else "Budget per project: -")
         lines.append(f"Total budget: {tot:,.0f} EUR" if pd.notna(tot) else "Total budget: -")
         lines.append(f"# Projects: {int(npj) if pd.notna(npj) else '-'}")
-
         doc.add_paragraph("\n".join(lines))
 
-        # Optional AI summary
         if include_ai_summaries and summaries_by_code is not None:
             ai_sum = summaries_by_code.get(str(r.get("code","")), "")
             if ai_sum:
-                doc.add_heading("AI Summary (T5)", level=2)
+                doc.add_heading("AI Summary", level=2)
                 doc.add_paragraph(ai_sum)
 
-        # Notes
         notes = (notes_by_code or {}).get(str(r.get("code","")), "")
         doc.add_heading("Notes", level=2)
         doc.add_paragraph(notes if notes else "-")
 
-        # Optional long text (if provided in df)
         eo = clean_footer(str(r.get("expected_outcome") or ""))
         sc = clean_footer(str(r.get("scope") or ""))
         if eo:
             doc.add_heading("Expected Outcome", level=2)
             for line in normalize_bullets(eo).splitlines():
+                par = doc.add_paragraph(line[2:] if line.startswith("- ") else line)
                 if line.startswith("- "):
-                    par = doc.add_paragraph(line[2:])
                     par.paragraph_format.left_indent = Cm(0.5)
-                else:
-                    doc.add_paragraph(line)
         if sc:
             doc.add_heading("Scope", level=2)
             for line in normalize_bullets(sc).splitlines():
+                par = doc.add_paragraph(line[2:] if line.startswith("- ") else line)
                 if line.startswith("- "):
-                    par = doc.add_paragraph(line[2:])
                     par.paragraph_format.left_indent = Cm(0.5)
-                else:
-                    doc.add_paragraph(line)
 
     bio = io.BytesIO()
     doc.save(bio)
@@ -533,9 +464,7 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
 
 def generate_html_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], title: str="Funding Report",
                          summaries_by_code: Dict[str, str] | None = None, include_ai_summaries: bool = False) -> bytes:
-    """Fallback lightweight HTML report that users can save as PDF from the browser."""
     parts = [f"<h1>{title}</h1><p><em>Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}</em></p>"]
-    # Summary table
     parts.append("<table border='1' cellspacing='0' cellpadding='4'><tr><th>Code</th><th>Title</th><th>Opening</th><th>Deadline</th></tr>")
     for _, r in calls_df.iterrows():
         opening = r.get("opening_date"); deadline = r.get("deadline")
@@ -543,8 +472,6 @@ def generate_html_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
         deadline_s = deadline.strftime("%d %b %Y") if pd.notna(deadline) else "-"
         parts.append(f"<tr><td>{r.get('code','')}</td><td>{r.get('title','')}</td><td>{opening_s}</td><td>{deadline_s}</td></tr>")
     parts.append("</table>")
-
-    # Detailed sections
     for _, r in calls_df.iterrows():
         parts.append("<hr>")
         parts.append(f"<h2>{r.get('code','')} — {r.get('title','')}</h2>")
@@ -567,63 +494,55 @@ def generate_html_report(calls_df: pd.DataFrame, notes_by_code: Dict[str, str], 
         meta.append(f"Total budget: {tot:,.0f} EUR" if pd.notna(tot) else "Total budget: -")
         meta.append(f"# Projects: {int(npj) if pd.notna(npj) else '-'}")
         parts.append("<p>" + "<br>".join(meta) + "</p>")
-
-        # Optional AI summary
         if include_ai_summaries and summaries_by_code is not None:
             ai_sum = summaries_by_code.get(str(r.get("code","")), "")
             if ai_sum:
-                parts.append("<p><b>AI Summary (T5)</b><br>" + ai_sum.replace("\n","<br>") + "</p>")
-
+                parts.append("<p><b>AI Summary</b><br>" + ai_sum.replace("\n","<br>") + "</p>")
         notes = (notes_by_code or {}).get(str(r.get("code","")), "")
         parts.append("<p><b>Notes</b><br>" + (notes.replace("\n", "<br>") if notes else "-") + "</p>")
-
         eo = clean_footer(str(r.get("expected_outcome") or ""))
         sc = clean_footer(str(r.get("scope") or ""))
         if eo:
             parts.append("<p><b>Expected Outcome</b><br>" + normalize_bullets(eo).replace("\n","<br>") + "</p>")
         if sc:
             parts.append("<p><b>Scope</b><br>" + normalize_bullets(sc).replace("\n","<br>") + "</p>")
-
     html = "<html><head><meta charset='utf-8'><title>{}</title></head><body>{}</body></html>".format(title, "".join(parts))
     return html.encode("utf-8")
 
-# ---------- Local T5 summarisation ----------
+# ---------- Local summarisation (DistilBART/BART/PEGASUS) ----------
 @st.cache_resource(show_spinner=False)
-def load_t5_pipeline():
+def load_summarizer_pipeline(local_files_only: bool = False):
     """
-    Load a small T5/FLAN-T5 model suitable for CPU.
-    Returns a HF pipeline or raises RuntimeError if transformers unavailable.
+    Load a small/medium summarisation model suitable for CPU.
+    Order: DistilBART (fast) → BART-Large (better) → PEGASUS (also strong).
+    If local_files_only=True, do not touch the network (pre-cached models only).
     """
-    if not TRANSFORMERS_AVAILABLE:
+    if not SUMMARISER_AVAILABLE:
         raise RuntimeError("transformers not installed")
+    # Honour environment toggle too
+    local_only_env = os.getenv("HF_HUB_OFFLINE", "").lower() in {"1","true","yes"}
+    local = local_files_only or local_only_env
 
-    # Prefer a small, instruction-tuned model if available; else vanilla T5
-    candidates = ["google/flan-t5-small", "t5-small"]
+    candidates = [
+        ("sshleifer/distilbart-cnn-12-6", "summarization"),
+        ("facebook/bart-large-cnn", "summarization"),
+        ("google/pegasus-xsum", "summarization"),
+        ("google/pegasus-cnn_dailymail", "summarization"),
+    ]
     last_err = None
-    for name in candidates:
+    for name, task in candidates:
         try:
-            tok = AutoTokenizer.from_pretrained(name)
-            mdl = AutoModelForSeq2SeqLM.from_pretrained(name)
-            pipe = pipeline("text2text-generation", model=mdl, tokenizer=tok)
-            return pipe, name
+            tok = AutoTokenizer.from_pretrained(name, local_files_only=local)
+            mdl = AutoModelForSeq2SeqLM.from_pretrained(name, local_files_only=local)
+            pipe = pipeline(task, model=mdl, tokenizer=tok)
+            return pipe, name, getattr(tok, "model_max_length", 1024)
         except Exception as e:
             last_err = e
-    raise RuntimeError(f"Failed to load any T5 model. Last error: {last_err}")
-
-def _hash_text(s: str) -> str:
-    return hashlib.sha1(s.encode("utf-8")).hexdigest()
-
-@st.cache_data(show_spinner=False)
-def summarise_text_cached(model_id: str, code: str, text_hash: str, prompt: str, max_words: int) -> str:
-    """
-    Cache wrapper. The actual generation runs inside (non-cached) helper to keep
-    the pipeline object out of cache keys.
-    """
-    # This function will be re-executed when (model_id, code, text_hash, prompt, max_words) change.
-    return ""  # placeholder; replaced immediately below at runtime
+            # On rate limit (429) or offline miss, try next model
+            continue
+    raise RuntimeError(f"Failed to load any summariser. Last error: {last_err}")
 
 def _approx_words_to_tokens(n_words: int) -> int:
-    # very rough 0.75 words/token heuristic for BART/PEGASUS
     return int(n_words / 0.75)
 
 def summarise_chunk(pipe, text: str,
@@ -645,47 +564,32 @@ def summarise_chunk(pipe, text: str,
 
 def summarise_long_text_abstractive(pipe, text: str,
                                     target_lines=(5, 10),
-                                    chunk_words: int = 300,
+                                    chunk_words: int = 320,
                                     overlap_words: int = 40,
                                     min_new_tokens: int = 60,
                                     max_new_tokens: int = 180) -> str:
-    """
-    Split by words → summarise each chunk → summarise the concatenation.
-    `target_lines` just guides new-token limits; exact bullet count isn’t guaranteed.
-    """
     if not text or not text.strip():
         return ""
-
-    # 1) First-pass summaries per chunk
     words = text.split()
     if not words:
         return ""
-    chunks = []
-    i = 0
+    chunks, i = [], 0
     while i < len(words):
         end = min(i + chunk_words, len(words))
         chunks.append(" ".join(words[i:end]))
-        i = end - overlap_words  # overlap to avoid cutting sentences
+        i = end - overlap_words
         if i <= 0:
             i = end
-
-    partials = [summarise_chunk(pipe, ch,
-                                min_new_tokens=min_new_tokens,
-                                max_new_tokens=max_new_tokens) for ch in chunks]
+    partials = [summarise_chunk(pipe, ch, min_new_tokens=min_new_tokens, max_new_tokens=max_new_tokens) for ch in chunks]
     combined = " ".join(p for p in partials if p)
 
-    # 2) Second-pass to hit ~5–10 lines
-    # Adjust tokens to steer length; very rough mapping
     low, high = target_lines
-    # ~15 words per line × lines → words → tokens
     approx_target_words = int(15 * ((low + high) / 2))
     approx_tokens = _approx_words_to_tokens(approx_target_words)
     min_tok = max(40, int(approx_tokens * 0.6))
     max_tok = max(min_tok + 40, int(approx_tokens * 1.4))
 
-    final = summarise_chunk(pipe, combined,
-                            min_new_tokens=min_tok,
-                            max_new_tokens=max_tok)
+    final = summarise_chunk(pipe, combined, min_new_tokens=min_tok, max_new_tokens=max_tok)
     return final
 
 def build_call_text(row: pd.Series) -> str:
@@ -696,21 +600,21 @@ def build_call_text(row: pd.Series) -> str:
         parts.append("Scope:\n" + clean_footer(str(row.get("scope"))))
     if pd.notna(row.get("full_text")) and str(row.get("full_text")).strip():
         parts.append("Full Description:\n" + clean_footer(str(row.get("full_text"))))
-    # Normalise bullets and spacing
-    norm = normalize_bullets("\n\n".join(parts))
-    return norm
+    return normalize_bullets("\n\n".join(parts))
+
+def _hash_text(s: str) -> str:
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
 # ---------- UI ----------
 st.set_page_config(page_title="Funding Dashboard", layout="wide")
 
-# Global CSS: widen page & provide scrolling container
 st.markdown(
     """
     <style>
     .scroll-container {
         overflow-x: auto;
         overflow-y: auto;
-        max-height: 900px;          /* vertical scroll for tall charts */
+        max-height: 900px;
         padding: 16px;
         border: 1px solid #eee;
         border-radius: 8px;
@@ -726,18 +630,13 @@ try:
     with open("logo.png", "rb") as f:
         data_b64 = base64.b64encode(f.read()).decode("utf-8")
     st.markdown(
-        f"""
-        <div style="text-align: center;">
-            <img src="data:image/png;base64,{data_b64}" width="250">
-        </div>
-        """,
+        f"""<div style="text-align: center;"><img src="data:image/png;base64,{data_b64}" width="250"></div>""",
         unsafe_allow_html=True
     )
 except Exception:
     pass
 
 st.title("Funding Dashboard")
-
 st.info(
     "📂 Please upload the latest parsed Excel file.\n\n"
     "➡️ Location hint:\n\n"
@@ -749,14 +648,11 @@ upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
 if not upl:
     st.stop()
 
-# Sheet selection
 sheet_names = get_sheet_names(upl.getvalue())
 sheet = st.selectbox("Sheet", sheet_names, index=0)
 
-# Load data
 df = load_sheet(upl.getvalue(), sheet)
 
-# Compute date bounds ONCE
 open_lo, open_hi = safe_date_bounds(df.get("opening_date"))
 dead_all = pd.concat([
     pd.to_datetime(df.get("deadline"), errors="coerce"),
@@ -765,12 +661,10 @@ dead_all = pd.concat([
 ], axis=0)
 dead_lo, dead_hi = safe_date_bounds(dead_all)
 
-# ----- Top filter form -----
 prog_opts, cluster_opts, type_opts, trl_opts, dest_opts = derive_filter_options(df)
 
 with st.form("filters_form", clear_on_submit=False):
     st.header("Filters")
-
     col1, col2, col3 = st.columns(3)
     with col1:
         programmes = st.multiselect("Programme", options=prog_opts, default=prog_opts)
@@ -785,7 +679,6 @@ with st.form("filters_form", clear_on_submit=False):
     with col5:
         trls       = st.multiselect("TRL", options=trl_opts)
 
-    # Keyword row
     col6, col7, col8, col9 = st.columns([2,2,2,1])
     with col6:
         kw1 = st.text_input("Keyword 1")
@@ -797,7 +690,6 @@ with st.form("filters_form", clear_on_submit=False):
         combine_mode = st.radio("Combine", ["AND", "OR"], horizontal=True, index=0)
     title_code_only = st.checkbox("Search only in Title & Code", value=True)
 
-    # Date filters row
     col10, col11, col12, col13 = st.columns(4)
     with col10:
         open_start = st.date_input("Open from", value=open_lo, min_value=open_lo, max_value=open_hi)
@@ -808,7 +700,6 @@ with st.form("filters_form", clear_on_submit=False):
     with col13:
         close_to   = st.date_input("Close to",   value=dead_hi, min_value=dead_lo, max_value=dead_hi)
 
-    # Budget slider (dynamic step)
     bud_series = pd.to_numeric(df.get("budget_per_project_eur"), errors="coerce").dropna()
     if bud_series.empty:
         min_bud, max_bud = 0.0, 1_000_000.0
@@ -818,14 +709,13 @@ with st.form("filters_form", clear_on_submit=False):
             min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
     rng = max_bud - min_bud
     try:
-        step = max(1e4, round(rng / 50, -3))  # ~50 steps, nearest 1k
+        step = max(1e4, round(rng / 50, -3))
     except Exception:
         step = 10000.0
     budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
 
     applied = st.form_submit_button("Apply filters")
 
-# Persist criteria
 if "criteria" not in st.session_state:
     st.session_state.criteria = {}
 if applied:
@@ -835,7 +725,6 @@ if applied:
         open_start=open_start, open_end=open_end, close_from=close_from, close_to=close_to,
         budget_range=budget_range, applied_at=datetime.utcnow().strftime("%H:%M UTC")
     )
-
 if not st.session_state.criteria:
     st.session_state.criteria = dict(
         programmes=sorted(df["programme"].dropna().unique().tolist()),
@@ -844,33 +733,23 @@ if not st.session_state.criteria:
         open_start=open_lo, open_end=open_hi, close_from=dead_lo, close_to=dead_hi,
         budget_range=(0.0, 1_000_000.0), applied_at=None
     )
-
 crit = st.session_state.criteria
 if crit.get("applied_at"):
     st.caption(f"Filters last applied at {crit['applied_at']}")
 
 # ---- Apply filters ----
 f = df.copy()
-
-# Keywords
 f = multi_keyword_filter(f, [crit["kw1"], crit["kw2"], crit["kw3"]], crit["combine_mode"], crit["title_code_only"])
-
-# Categorical filters
 if crit["programmes"]: f = f[f["programme"].isin(crit["programmes"])]
 if crit["clusters"]:   f = f[f["cluster"].isin(crit["clusters"])]
 if crit["types"]:      f = f[f["type_of_action"].isin(crit["types"])]
 if crit["trls"]:
     f = f[f["trl"].dropna().astype("Int64").astype(str).isin(crit["trls"])]
 if crit["dests"]:      f = f[f["destination_or_strand"].isin(crit["dests"])]
-
-# Dates
 f = f[f["opening_date"].between(pd.to_datetime(crit["open_start"]), pd.to_datetime(crit["open_end"]), inclusive="both")]
 f = f[f["closing_date_any"].between(pd.to_datetime(crit["close_from"]), pd.to_datetime(crit["close_to"]), inclusive="both")]
-
-# Budget
 low, high = crit["budget_range"]
 f = f[f["budget_per_project_eur"].fillna(0).between(low, high)]
-
 st.markdown(f"**Showing {len(f)} rows** after last applied filters.")
 
 # ---------- Tabs ----------
@@ -882,23 +761,16 @@ with tab1:
     if segments.empty:
         st.info("No rows with valid dates to display.")
     else:
-        # Controls
         group_mode = st.radio("Group charts by", ["None", "Cluster"], horizontal=True, index=0)
-        view_mode = st.radio(
-            "View",
-            ["Dropdowns (one per group)", "Single select (one chart)"],
-            horizontal=True, index=0,
-            help="Dropdowns show all groups as expanders; Single select renders only one chart."
-        )
+        view_mode = st.radio("View", ["Dropdowns (one per group)", "Single select (one chart)"],
+                             horizontal=True, index=0)
 
         def render_chart(seg_df, title_suffix=""):
-            chart = build_altair_chart_from_segments(
-                seg_df, view_start=crit["open_start"], view_end=crit["close_to"]
-            )
+            chart = build_altair_chart_from_segments(seg_df, view_start=crit["open_start"], view_end=crit["close_to"])
             if title_suffix:
                 st.markdown(f"### {title_suffix}")
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.altair_chart(chart, use_container_width=True)  # fill width; scroll container handles overflow
+            st.altair_chart(chart, width='stretch')  # NEW API
             st.markdown('</div>', unsafe_allow_html=True)
 
         if group_mode == "None":
@@ -910,7 +782,6 @@ with tab1:
             else:
                 grouped = list(segments.groupby(key))
                 grouped.sort(key=lambda kv: len(kv[1]), reverse=True)
-
                 if view_mode.startswith("Single"):
                     names = [str(k if pd.notna(k) else "—") for k, _ in grouped]
                     sel = st.selectbox("Select cluster", options=names, index=0)
@@ -931,9 +802,9 @@ with tab2:
     if group_by_cluster and "cluster" in f.columns:
         for clu, group_df in f.groupby("cluster"):
             with st.expander(f"Cluster: {clu} ({len(group_df)} calls)"):
-                st.dataframe(group_df[show_cols], use_container_width=True, hide_index=True, height=400)
+                st.dataframe(group_df[show_cols], hide_index=True, height=400, width='stretch')  # NEW API
     else:
-        st.dataframe(f[show_cols], use_container_width=True, hide_index=True, height=800)
+        st.dataframe(f[show_cols], hide_index=True, height=800, width='stretch')  # NEW API
 
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as xw:
@@ -948,7 +819,6 @@ with tab2:
 with tab3:
     st.subheader("Full data (expand rows)")
     group_full_by_cluster = st.checkbox("Group by Cluster (full data)")
-
     kw_list = [crit.get("kw1", ""), crit.get("kw2", ""), crit.get("kw3", "")]
 
     def render_row(row):
@@ -981,20 +851,15 @@ with tab3:
 
         if row.get("expected_outcome"):
             with st.expander("🎯 Expected Outcome"):
-                clean_text = normalize_bullets(clean_footer(row.get("expected_outcome")))
-                clean_text = nl_to_br(clean_text)
+                clean_text = nl_to_br(normalize_bullets(clean_footer(row.get("expected_outcome"))))
                 st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
-
         if row.get("scope"):
             with st.expander("🧭 Scope"):
-                clean_text = normalize_bullets(clean_footer(row.get("scope")))
-                clean_text = nl_to_br(clean_text)
+                clean_text = nl_to_br(normalize_bullets(clean_footer(row.get("scope"))))
                 st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
-
         if row.get("full_text"):
             with st.expander("📖 Full Description"):
-                clean_text = normalize_bullets(clean_footer(row.get("full_text")))
-                clean_text = nl_to_br(clean_text)
+                clean_text = nl_to_br(normalize_bullets(clean_footer(row.get("full_text"))))
                 st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
 
         st.caption(
@@ -1019,43 +884,42 @@ with tab3:
 with tab4:
     st.subheader("Shortlist, Notes & Summaries")
 
-    # 1) Show list of codes/titles based on current filters
+    # offline cache option to avoid HF 429 / network calls
+    offline_only = st.checkbox("Use offline Hugging Face cache only (no network)", value=False,
+                               help="Tick if you see HF 429 errors. Ensure the model is already cached locally.")
+
     if "selection" not in st.session_state:
         st.session_state.selection = set()
     if "notes" not in st.session_state:
         st.session_state.notes = {}
     if "summaries" not in st.session_state:
-        st.session_state.summaries = {}  # code -> summary text
+        st.session_state.summaries = {}
 
     st.markdown("**Select calls to include in the report**")
     for _, r in f.sort_values(["closing_date_any", "opening_date"]).iterrows():
         code = str(r.get("code") or "")
         title = str(r.get("title") or "")
-        label = f"{code} — {title}"
         checked = code in st.session_state.selection
-        new_val = st.checkbox(label, value=checked, key=f"chk_{code}")
+        new_val = st.checkbox(f"{code} — {title}", value=checked, key=f"chk_{code}")
         if new_val and not checked:
             st.session_state.selection.add(code)
         elif (not new_val) and checked:
             st.session_state.selection.discard(code)
 
-    # 2) Notes + Summarisation controls
     if st.session_state.selection:
         st.markdown("---")
         st.markdown("**Enter notes per selected call**")
         selected_df = f[f["code"].astype(str).isin(st.session_state.selection)].copy()
-
         for _, r in selected_df.iterrows():
             code = str(r.get("code") or "")
             title = str(r.get("title") or "")
             default_txt = st.session_state.notes.get(code, "")
             st.session_state.notes[code] = st.text_area(
-                f"Notes — {code} — {title}",
-                value=default_txt, key=f"note_{code}", height=120
+                f"Notes — {code} — {title}", value=default_txt, key=f"note_{code}", height=120
             )
 
         st.markdown("---")
-        st.markdown("**Optional: Generate AI summaries (local BART/PEGASUS)**")
+        st.markdown("**Optional: Generate AI summaries (local DistilBART/BART/PEGASUS)**")
         sum_col1, sum_col2, sum_col3 = st.columns([2,2,1])
         with sum_col1:
             style_hint = st.text_input(
@@ -1068,38 +932,30 @@ with tab4:
         with sum_col3:
             chunk_words = st.number_input("Chunk size (words)", min_value=200, max_value=900, value=320, step=20,
                                           help="Text is split into overlapping chunks to fit the model.")
-        
+
         if st.button("⚡ Generate summaries"):
             if not SUMMARISER_AVAILABLE:
                 st.error("`transformers` not installed. Install with: pip install transformers sentencepiece")
             else:
                 try:
                     with st.spinner("Loading summariser …"):
-                        pipe, model_id, model_max_len = load_summarizer_pipeline()
+                        pipe, model_id, _ = load_summarizer_pipeline(local_files_only=offline_only)
                     generated = 0
                     for _, r in selected_df.iterrows():
                         code = str(r.get("code") or "")
                         raw_text = build_call_text(r)
-                        if style_hint:
-                            text = f"{style_hint}\n\n{raw_text}"
-                        else:
-                            text = raw_text
+                        text = f"{style_hint}\n\n{raw_text}" if style_hint else raw_text
                         if not text.strip():
                             st.info(f"{code}: no long text to summarise.")
                             continue
-                        # cache check
                         text_hash = _hash_text(text)
                         cached = st.session_state.summaries.get(code)
                         if cached and cached.get("text_hash") == text_hash:
                             continue
-        
                         summary = summarise_long_text_abstractive(
-                            pipe, text,
-                            target_lines=(5,10),
-                            chunk_words=int(chunk_words),
-                            overlap_words=40,
-                            min_new_tokens=60,
-                            max_new_tokens=int(max_new)
+                            pipe, text, target_lines=(5,10),
+                            chunk_words=int(chunk_words), overlap_words=40,
+                            min_new_tokens=60, max_new_tokens=int(max_new)
                         )
                         st.session_state.summaries[code] = {
                             "summary": summary,
@@ -1116,18 +972,28 @@ with tab4:
                 except Exception as e:
                     st.error(f"Failed to generate summaries: {e}")
 
+        if st.session_state.summaries:
+            st.markdown("---")
+            st.markdown("### AI Summaries")
+            for _, r in selected_df.iterrows():
+                code = str(r.get("code") or "")
+                title = str(r.get("title") or "")
+                rec = st.session_state.summaries.get(code)
+                if not rec:
+                    continue
+                with st.expander(f"AI Summary — {code} — {title}", expanded=False):
+                    st.write(rec.get("summary") or "")
+                    st.caption(f"Model: {rec.get('model')} — Generated at {rec.get('generated_at')} — Style: “{rec.get('prompt')}”")
 
         st.markdown("---")
         colA, colB, colC = st.columns(3)
         with colA:
             report_title = st.text_input("Report title", value="Funding Report – Shortlist")
         with colB:
-            include_long_text = st.checkbox("Include Expected Outcome / Scope (export)", value=False,
-                                            help="If off, those sections are omitted for a shorter document.")
+            include_long_text = st.checkbox("Include Expected Outcome / Scope (export)", value=False)
         with colC:
             include_ai_summ = st.checkbox("Include AI summaries in export", value=True)
 
-        # 3) Generate report (DOCX preferred, else HTML)
         def prep_df_for_report(df_in: pd.DataFrame) -> pd.DataFrame:
             cols = [
                 "code","title","programme","cluster","destination_or_strand",
@@ -1148,8 +1014,6 @@ with tab4:
                     for col in ("expected_outcome","scope"):
                         if col in df_for_export.columns:
                             df_for_export[col] = ""
-
-                # Build a simple map code->summary for export
                 summaries_map = {}
                 if include_ai_summ and st.session_state.summaries:
                     for _, r in selected_df.iterrows():
