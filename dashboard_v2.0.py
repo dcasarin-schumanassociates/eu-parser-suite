@@ -239,6 +239,9 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     y_order = seg["y_label"].drop_duplicates().tolist()
     unique_rows = len(y_order)
     row_height = 50
+    bar_size     = int(row_height * 0.38)               # bar thickness ~38% of band
+    label_offset = - int(bar_size / 2 + 4)              # position text just ABOVE the bar
+
     chart_height = max(1500, unique_rows * row_height)
     domain_min = seg["start"].min()
     domain_max = seg["end"].max()
@@ -289,12 +292,12 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
                 title=None, labelLimit=200, labelFontSize=11, labelAlign="right",
                 labelPadding=50, domain=True
             ),
-            scale=alt.Scale(domain=y_order, paddingInner=0.6, paddingOuter=0.05)
+            scale=alt.Scale(domain=y_order, paddingInner=0.3, paddingOuter=0.10)
         )
     )
 
     # Bars: colour ONLY via encoding so Stage-2 opacity works (no fixed mark color)
-    bars = alt.Chart(seg).mark_bar(cornerRadius=7, size=26).encode(
+    bars = alt.Chart(seg).mark_bar(cornerRadius=10, size=bar_size).encode(
         y=alt.Y(
             "y_label:N",
             sort=y_order,
@@ -338,16 +341,39 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         .encode(x="end:T",   text=alt.Text("end:T",   format="%d %b %Y"))
 
     text_cond = alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
-    inbar = base.mark_text(align="left", baseline="middle", dx=2, dy=20, fontSize=12, fill="black").encode(
-        x=alt.X("start:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
+    inbar = base.mark_text(align="left",
+                           baseline="bottom",
+                           dx=2, 
+                           dy=label_offset,
+                           x=alt.X("start:T",
+                                   scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         text=alt.Text("title_inbar:N"),
         opacity=text_cond
     )
 
+    # --- Today line (Europe/Brussels), drawn as a dashed red rule with a tooltip
+    today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
+    today_df = pd.DataFrame({"t": [today_ts]})
+    
+    today_rule = alt.Chart(today_df).mark_rule(
+        color="#d62728", strokeDash=[6,4], strokeWidth=2
+    ).encode(
+        x="t:T",
+        tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
+    )
+    
+    today_label = alt.Chart(today_df).mark_text(
+        align="left", baseline="bottom", dx=4, dy=4, fontSize=11, fontWeight="bold", color="#d62728"
+    ).encode(
+        x="t:T",
+        y=alt.value(0),     # inside top edge
+        text=alt.value("Today")
+    )
+    
     chart = (
-        month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels
+        month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels + today_rule + today_label
     ).properties(
-        height=chart_height + 75,
+        height= max(800, unique_rows * row_height),
         width='container',  # fill available width
         padding={"top": 50, "bottom": 30, "left": 10, "right": 10}
     ).configure_axis(
