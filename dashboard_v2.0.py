@@ -718,7 +718,7 @@ with tab1:
             help="Dropdowns show all groups as expanders; Single select renders only one chart."
         )
 
-        def render_chart(seg_df, title_suffix=""):
+        def render_chart(seg_df, title_suffix: str = ""):
             chart = build_altair_chart_from_segments(
                 seg_df,
                 view_start=crit["open_start"],
@@ -728,8 +728,8 @@ with tab1:
                 st.markdown(f"### {title_suffix}")
             st.altair_chart(chart, use_container_width=True)
 
-             
-    if group_mode == "None":
+        # -------- fixed indentation from here --------
+        if group_mode == "None":
             render_chart(segments)
         else:
             key = "cluster"
@@ -751,6 +751,7 @@ with tab1:
                         disp = str(name if pd.notna(name) else "—")
                         with st.expander(f"Cluster: {disp} ({len(gdf)} calls)", expanded=False):
                             render_chart(gdf)
+
 
 with tab2:
     st.subheader("Filtered table")
