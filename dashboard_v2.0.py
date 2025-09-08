@@ -273,13 +273,13 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         (month_labels_df["next_month"] - month_labels_df["month"]) / 2
     )
     month_labels = alt.Chart(month_labels_df).mark_text(
-        align="center", baseline="top", dy=-20, fontSize=12, fontWeight="bold",
-    ).encode(x="mid:T", text="label:N", y=alt.value(-10))
+        align="center", baseline="top", dy=-5, fontSize=12, fontWeight="bold",
+    ).encode(x="mid:T", text="label:N", y=alt.value(-5))
 
     # Thin top axis rule to visually reinforce the top axis
-    top_axis_rule = alt.Chart(pd.DataFrame({"t":[domain_min, domain_max]})).mark_rule(stroke="#333", strokeWidth=1).encode(
-        x="t:T"
-    )
+    # top_axis_rule = alt.Chart(pd.DataFrame({"t":[domain_min, domain_max]})).mark_rule(stroke="#333", strokeWidth=1).encode(
+        #x="t:T"
+    #)
 
     base = alt.Chart(seg).encode(
         y=alt.Y(
@@ -300,7 +300,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
             sort=y_order,
             axis=alt.Axis(
                 title=None, labelLimit=500, labelFontSize=13, labelAlign="right",
-                labelPadding=100, domain=True
+                labelPadding=50, domain=True
             ),
             scale=alt.Scale(domain=y_order)
         ),
@@ -315,7 +315,11 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         x2="end:T",
         color=alt.Color(
             "type_of_action:N",
-            legend=alt.Legend(title="Type of Action", orient="left", offset=100),
+            legend=alt.Legend(title="Type of Action",
+                              orient="top",
+                              direction="horizontal",
+                              columns=3,
+                              offset=100),
             scale=alt.Scale(scheme="set2")
         ),
         opacity=alt.condition(alt.datum.segment == "Stage 2", alt.value(0.7), alt.value(1.0)),
@@ -348,9 +352,11 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
         width='container',  # fill available width
         padding={"top": 50, "bottom": 30, "left": 10, "right": 10}
     ).configure_axis(
-        grid=False
+        grid=False,
+        domain=True,
+        domainWidth=1
     ).configure_view(
-        continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False,
+        continuousHeight=500, continuousWidth=500, strokeWidth=0, clip=False,
     ).resolve_scale(
         x='shared', y='shared'
     ).resolve_axis(
