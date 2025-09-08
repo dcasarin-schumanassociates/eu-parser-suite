@@ -21,12 +21,39 @@ try:
 except Exception:
     DOCX_AVAILABLE = False
 
-# Optional transformers dependency for local summarisation
-TRANSFORMERS_AVAILABLE = True
+# Optional transformers dependency for local summarisation (abstractive)
+SUMMARISER_AVAILABLE = True
 try:
     from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 except Exception:
-    TRANSFORMERS_AVAILABLE = False
+    SUMMARISER_AVAILABLE = False
+
+@st.cache_resource(show_spinner=False)
+def load_summarizer_pipeline():
+    """
+    Load a small/medium summarisation model suitable for CPU.
+    Order: DistilBART (fast) → BART-Large (better) → PEGASUS (also strong).
+    """
+    if not SUMMARISER_AVAILABLE:
+        raise RuntimeError("transformers not installed")
+
+    candidates = [
+        ("sshleifer/distilbart-cnn-12-6", "summarization"),   # fast, good default
+        ("facebook/bart-large-cnn", "summarization"),         # higher quality, slower
+        ("google/pegasus-xsum", "summarization"),             # short, sharp summaries
+        ("google/pegasus-cnn_dailymail", "summarization"),    # slightly longer summaries
+    ]
+    last_err = None
+    for name, task in candidates:
+        try:
+            tok = AutoTokenizer.from_pretrained(name)
+            mdl = AutoModelForSeq2SeqLM.from_pretrained(name)
+            pipe = pipeline(task, model=mdl, tokenizer=tok)
+            # model_max_length helps choose chunk sizes
+            return pipe, name, tok.model_max_length
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"Failed to load any summariser. Last error: {last_err}")
 
 # ---------- Column mapping tailored to your Excel ----------
 COLUMN_MAP = {
@@ -595,32 +622,71 @@ def summarise_text_cached(model_id: str, code: str, text_hash: str, prompt: str,
     # This function will be re-executed when (model_id, code, text_hash, prompt, max_words) change.
     return ""  # placeholder; replaced immediately below at runtime
 
-def _run_t5_summary(pipe, prompt: str, text: str, max_tokens: int = 256) -> str:
-    # Guard against empty text
-    if not text or not text.strip():
-        return ""
-    # T5 likes explicit instruction-style prompts
-    full = f"{prompt}\n\n{text.strip()}"
-    out = pipe(full, max_new_tokens=max_tokens, do_sample=False, truncation=True)
-    return out[0]["generated_text"].strip()
+def _approx_words_to_tokens(n_words: int) -> int:
+    # very rough 0.75 words/token heuristic for BART/PEGASUS
+    return int(n_words / 0.75)
 
-def summarise_long_text(pipe, prompt: str, text: str, chunk_words: int = 300, max_tokens: int = 256) -> str:
+def summarise_chunk(pipe, text: str,
+                    min_new_tokens: int = 60,
+                    max_new_tokens: int = 180,
+                    num_beams: int = 4) -> str:
+    if not text or not text.strip():
+        return ""
+    out = pipe(
+        text.strip(),
+        do_sample=False,
+        num_beams=num_beams,
+        length_penalty=1.0,
+        min_new_tokens=min_new_tokens,
+        max_new_tokens=max_new_tokens,
+        truncation=True,
+    )
+    return (out[0]["summary_text"] if isinstance(out, list) else out["summary_text"]).strip()
+
+def summarise_long_text_abstractive(pipe, text: str,
+                                    target_lines=(5, 10),
+                                    chunk_words: int = 300,
+                                    overlap_words: int = 40,
+                                    min_new_tokens: int = 60,
+                                    max_new_tokens: int = 180) -> str:
     """
-    Chunk long input by words, summarise each chunk, then summarise the summaries.
-    Keeps everything CPU-friendly.
+    Split by words → summarise each chunk → summarise the concatenation.
+    `target_lines` just guides new-token limits; exact bullet count isn’t guaranteed.
     """
     if not text or not text.strip():
         return ""
+
+    # 1) First-pass summaries per chunk
     words = text.split()
-    chunks = [" ".join(words[i:i+chunk_words]) for i in range(0, len(words), chunk_words)]
-    partials = []
-    for ch in chunks:
-        partials.append(_run_t5_summary(pipe, prompt, ch, max_tokens=max_tokens))
-    # Second-pass summary if we had multiple chunks
-    combined = " ".join(partials)
-    if len(chunks) > 1:
-        combined = _run_t5_summary(pipe, "Summarise concisely in bullet points.", combined, max_tokens=max_tokens)
-    return combined
+    if not words:
+        return ""
+    chunks = []
+    i = 0
+    while i < len(words):
+        end = min(i + chunk_words, len(words))
+        chunks.append(" ".join(words[i:end]))
+        i = end - overlap_words  # overlap to avoid cutting sentences
+        if i <= 0:
+            i = end
+
+    partials = [summarise_chunk(pipe, ch,
+                                min_new_tokens=min_new_tokens,
+                                max_new_tokens=max_new_tokens) for ch in chunks]
+    combined = " ".join(p for p in partials if p)
+
+    # 2) Second-pass to hit ~5–10 lines
+    # Adjust tokens to steer length; very rough mapping
+    low, high = target_lines
+    # ~15 words per line × lines → words → tokens
+    approx_target_words = int(15 * ((low + high) / 2))
+    approx_tokens = _approx_words_to_tokens(approx_target_words)
+    min_tok = max(40, int(approx_tokens * 0.6))
+    max_tok = max(min_tok + 40, int(approx_tokens * 1.4))
+
+    final = summarise_chunk(pipe, combined,
+                            min_new_tokens=min_tok,
+                            max_new_tokens=max_tok)
+    return final
 
 def build_call_text(row: pd.Series) -> str:
     parts = []
@@ -989,70 +1055,67 @@ with tab4:
             )
 
         st.markdown("---")
-        st.markdown("**Optional: Generate AI summaries (local T5)**")
+        st.markdown("**Optional: Generate AI summaries (local BART/PEGASUS)**")
         sum_col1, sum_col2, sum_col3 = st.columns([2,2,1])
         with sum_col1:
-            t5_prompt = st.text_input(
-                "T5 prompt",
-                value="Summarise the following EU call text for a client, UK English, bullet points with 4–7 bullets, keep it factual."
+            style_hint = st.text_input(
+                "Style hint (optional)",
+                value="Summarise for a client in UK English; produce 5–10 concise bullet points; stay factual."
             )
         with sum_col2:
-            max_tokens = st.slider("Max new tokens per chunk", 64, 512, 256, step=32,
-                                   help="Higher = longer summaries, slower.")
+            max_new = st.slider("Max new tokens per chunk", 64, 512, 180, step=16,
+                                help="Higher = longer chunk summaries, slower.")
         with sum_col3:
-            chunk_words = st.number_input("Chunk size (words)", min_value=150, max_value=800, value=300, step=50,
-                                          help="Text is split into chunks to fit the model; each chunk is summarised.")
-
-        if st.button("⚡ Generate T5 summaries"):
-            if not TRANSFORMERS_AVAILABLE:
+            chunk_words = st.number_input("Chunk size (words)", min_value=200, max_value=900, value=320, step=20,
+                                          help="Text is split into overlapping chunks to fit the model.")
+        
+        if st.button("⚡ Generate summaries"):
+            if not SUMMARISER_AVAILABLE:
                 st.error("`transformers` not installed. Install with: pip install transformers sentencepiece")
             else:
                 try:
-                    with st.spinner("Loading T5 …"):
-                        pipe, model_id = load_t5_pipeline()
+                    with st.spinner("Loading summariser …"):
+                        pipe, model_id, model_max_len = load_summarizer_pipeline()
                     generated = 0
                     for _, r in selected_df.iterrows():
                         code = str(r.get("code") or "")
-                        text = build_call_text(r)
+                        raw_text = build_call_text(r)
+                        if style_hint:
+                            text = f"{style_hint}\n\n{raw_text}"
+                        else:
+                            text = raw_text
                         if not text.strip():
                             st.info(f"{code}: no long text to summarise.")
                             continue
+                        # cache check
                         text_hash = _hash_text(text)
-                        cache_key = (model_id, code, text_hash, t5_prompt, max_tokens, chunk_words)
-                        # Use our cached data call by simulating its key; we compute immediately below:
                         cached = st.session_state.summaries.get(code)
-                        if cached and cached.get("text_hash") == text_hash and cached.get("prompt") == t5_prompt:
-                            continue  # already computed for same text & prompt
-
-                        summary = summarise_long_text(pipe, t5_prompt, text, chunk_words=chunk_words, max_tokens=max_tokens)
+                        if cached and cached.get("text_hash") == text_hash:
+                            continue
+        
+                        summary = summarise_long_text_abstractive(
+                            pipe, text,
+                            target_lines=(5,10),
+                            chunk_words=int(chunk_words),
+                            overlap_words=40,
+                            min_new_tokens=60,
+                            max_new_tokens=int(max_new)
+                        )
                         st.session_state.summaries[code] = {
                             "summary": summary,
                             "model": model_id,
                             "text_hash": text_hash,
-                            "prompt": t5_prompt,
+                            "prompt": style_hint,
                             "generated_at": datetime.utcnow().strftime("%H:%M UTC")
                         }
                         generated += 1
                     if generated == 0:
-                        st.success("Summaries were already up to date for current text & prompt.")
+                        st.success("Summaries were already up to date for current text & style.")
                     else:
-                        st.success(f"Generated {generated} summaries with {model_id}.")
+                        st.success(f"Generated {generated} summaries using {model_id}.")
                 except Exception as e:
                     st.error(f"Failed to generate summaries: {e}")
 
-        # Show current summaries (if any)
-        if st.session_state.summaries:
-            st.markdown("---")
-            st.markdown("### AI Summaries")
-            for _, r in selected_df.iterrows():
-                code = str(r.get("code") or "")
-                title = str(r.get("title") or "")
-                rec = st.session_state.summaries.get(code)
-                if not rec:
-                    continue
-                with st.expander(f"AI Summary — {code} — {title}", expanded=False):
-                    st.write(rec.get("summary") or "")
-                    st.caption(f"Model: {rec.get('model')} — Generated at {rec.get('generated_at')} — Prompt: “{rec.get('prompt')}”")
 
         st.markdown("---")
         colA, colB, colC = st.columns(3)
