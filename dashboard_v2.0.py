@@ -286,7 +286,7 @@ def summarize_text_t5(text: str, approx_sentences: int = 10) -> str:
     return final.strip()
 
 # ---------- Chart builder ----------
-def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
+def build_altair_chart_from_segments(seg: pd.DataFrame, view_start=None, view_end=None):
     if seg.empty:
         return None
 
@@ -719,15 +719,11 @@ with tab1:
         )
 
         def render_chart(seg_df, title_suffix: str = ""):
-            chart = build_altair_chart_from_segments(
-                seg_df,
-                view_start=crit["open_start"],
-                view_end=crit["close_to"],
-            )
+            chart = build_altair_chart_from_segments(seg_df)  # ← no crit[] needed
             if title_suffix:
                 st.markdown(f"### {title_suffix}")
             st.altair_chart(chart, use_container_width=True)
-
+            
         # -------- fixed indentation from here --------
         if group_mode == "None":
             render_chart(segments)
