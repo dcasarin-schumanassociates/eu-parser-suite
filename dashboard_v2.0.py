@@ -719,12 +719,17 @@ with tab1:
         )
 
         def render_chart(seg_df, title_suffix=""):
-            chart = build_altair_chart_from_segments(seg_df)
+            chart = build_altair_chart_from_segments(
+                seg_df,
+                view_start=crit["open_start"],
+                view_end=crit["close_to"],
+            )
             if title_suffix:
                 st.markdown(f"### {title_suffix}")
             st.altair_chart(chart, use_container_width=True)
 
-        if group_mode == "None":
+             
+       if group_mode == "None":
             render_chart(segments)
         else:
             key = "cluster"
