@@ -1,5 +1,5 @@
-streamlit>=1.32
-pandas>=2.0
+streamlit>=1.36
+pandas>=2.1
 openpyxl>=3.1
 python-dateutil>=2.8
 altair>=5.0          # keep if you want the Altair version, safe to include
@@ -9,5 +9,8 @@ PyMuPDF
 fitz
 streamlit-aggrid
 tabulate>=0.9.0
-python-docx
-sumy
+python-docx>=0.8.11
+sumy>=0.11.0
+transformers>=4.44
+torch>=2.2
+sentencepiece>=0.1.99
