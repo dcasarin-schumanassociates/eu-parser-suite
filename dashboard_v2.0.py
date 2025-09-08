@@ -302,20 +302,10 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
 
     bands_df = build_month_bands(min_x, max_x)
 
-    # Header with month labels centred at mid-months (keeps visible during pan/zoom)
+    # Build the header labels only if we have at least 2 month boundaries
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
-    mdf = pd.DataFrame({
-        "month": months[:-1],
-        "next_month": months[1:],
-        "label": [m.strftime("%b %Y") for m in months[:-1]]
-    })
-    mdf["mid"] = mdf["month"] + ((mdf["next_month"] - mdf["month"]) / 2)
-    header = alt.Chart(mdf).mark_text(align="center", baseline="bottom", dy=0, fontSize=12, fontWeight="bold").encode(
-        x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max])),
-        text="label:N"
-    ).properties(height=28)
 
     # Background month shading
     month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
@@ -341,9 +331,11 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
             axis=alt.Axis(title=None, labelLimit=500, labelFontSize=13, labelAlign="right", labelPadding=100, domain=True),
             scale=alt.Scale(domain=y_order)
         ),
+        # axis is toggled below depending on header availability
         x=alt.X("start:T", axis=None, scale=alt.Scale(domain=[domain_min, domain_max])),
         x2="end:T",
-        color=alt.Color("type_of_action:N", legend=alt.Legend(title="Type of Action", orient="left", offset=100),
+        color=alt.Color("type_of_action:N",
+                        legend=alt.Legend(title="Type of Action", orient="left", offset=100),
                         scale=alt.Scale(scheme="set2")),
         opacity=alt.condition(alt.datum.segment == "Stage 2", alt.value(0.7), alt.value(1.0)),
         tooltip=[
@@ -376,8 +368,42 @@ def build_altair_chart_from_segments(seg: pd.DataFrame):
         padding={"top": 10, "bottom": 10, "left": 10, "right": 10}
     ).configure_view(continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False)
 
-    chart = alt.vconcat(header, body).resolve_scale(x='shared').interactive(bind_x=True)
-    return chart
+    # Case A: we have enough months to build a header band
+    if len(months) >= 2:
+        mdf = pd.DataFrame({
+            "month": months[:-1],
+            "next_month": months[1:],
+            "label": [m.strftime("%b %Y") for m in months[:-1]]
+        })
+        mdf["mid"] = mdf["month"] + ((mdf["next_month"] - mdf["month"]) / 2)
+        header = alt.Chart(mdf).mark_text(
+            align="center", baseline="bottom", dy=0, fontSize=12, fontWeight="bold"
+        ).encode(
+            x=alt.X("mid:T", scale=alt.Scale(domain=[domain_min, domain_max])),
+            text="label:N"
+        ).properties(height=28)
+
+        # Interactivity must be applied to the CHILD (body), not the VConcat container
+        body_interactive = body.interactive(bind_x=True)
+        chart = alt.vconcat(header, body_interactive).resolve_scale(x='shared')
+        return chart
+
+    # Case B: too few months — no header, re-enable the bar axis at top
+    bars_no_header = bars.encode(
+        x=alt.X(
+            "start:T",
+            axis=alt.Axis(title=None, format="%b %Y", tickCount="month", orient="top",
+                          labelFontSize=11, labelPadding=50, labelOverlap="greedy", tickSize=6),
+            scale=alt.Scale(domain=[domain_min, domain_max])
+        )
+    )
+    body_no_header = (month_shade + bars_no_header + start_labels + end_labels + inbar).properties(
+        height=chart_height,
+        width='container',
+        padding={"top": 10, "bottom": 10, "left": 10, "right": 10}
+    ).configure_view(continuousHeight=300, continuousWidth=500, strokeWidth=0, clip=False)
+
+    return body_no_header.interactive(bind_x=True)
 
 # ---------- Cached I/O & options ----------
 @st.cache_data(show_spinner=False)
