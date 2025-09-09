@@ -327,7 +327,7 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
 
 st.set_page_config(page_title="Funding Dashboard – app_b3.3", layout="wide")
 
-t.markdown(
+st.markdown(
     """
     <style>
     .scroll-container {
