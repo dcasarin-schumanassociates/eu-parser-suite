@@ -360,7 +360,7 @@ try:
 except Exception:
     pass
 
-st.title("Funding Dashboard")
+st.title("Funding Dashboard v3.0")
 
 st.info(
     "📂 Please upload the latest parsed Excel file.\n\n"
