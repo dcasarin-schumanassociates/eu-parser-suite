@@ -212,7 +212,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 
     month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
         x="start:T", x2="end:T",
-        opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.25]), legend=None),
+        opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.05]), legend=None),
         color=alt.value("#00008B")
     )
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
@@ -230,7 +230,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     # Today line (Europe/Brussels)
     today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
     today_df = pd.DataFrame({"t":[today_ts]})
-    today_rule = alt.Chart(today_df).mark_rule(color="#d62728", strokeDash=[6,4], strokeWidth=2).encode(
+    today_rule = alt.Chart(today_df).mark_rule(color="#4169E1", strokeDash=[6,4], strokeWidth=3).encode(
         x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
     )
     today_label = alt.Chart(today_df).mark_text(
