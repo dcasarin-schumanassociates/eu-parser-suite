@@ -2,14 +2,14 @@
 # Two separate Gantts (Horizon/Erasmus), two-tier filters, and a new "Full Data" tab.
 
 from __future__ import annotations
-
 import io, re
 from datetime import datetime
 from typing import List, Dict, Optional
-
 import pandas as pd
 import streamlit as st
 import altair as alt
+import base64  # needed for the logo block
+
 
 # Optional DOCX for shortlist export
 try:
@@ -325,15 +325,16 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
 
 # --------------------------------- UI ---------------------------------
 
-st.set_page_config(page_title="Funding Dashboard – app_b3.3", layout="wide")
+t.set_page_config(page_title="Funding Dashboard", layout="wide")
 
+# Global CSS
 st.markdown(
     """
     <style>
     .scroll-container {
         overflow-x: auto;
         overflow-y: auto;
-        max-height: 900px;          /* vertical scroll for tall charts */
+        max-height: 900px;
         padding: 16px;
         border: 1px solid #eee;
         border-radius: 8px;
@@ -359,13 +360,13 @@ try:
 except Exception:
     pass
 
-st.title("Funding Dashboard — Horizon & Erasmus · V3.0")
+st.title("Funding Dashboard")
 
 st.info(
     "📂 Please upload the latest parsed Excel file.\n\n"
     "➡️ Location hint:\n\n"
-    "- **3.SA Practices** → Central Systems and Bid Management → 1. Central Systems\n\n"
-    "👉 Look for *Central System Funding Compass Database*.\n"
+    "- **3.SA Practices** → Central Systems and Bid Management → 1. Central Systems → 2. CS EU PROGRAMMES Area → 4. Horizon Europe → CALENDAR OF CALLS FOR PROPOSALS → 4. WPs 2026-2027 → Coding Davide\n\n"
+    "👉 Look for *Horizon Calls - 26_27*.\n"
 )
 
 upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
