@@ -392,6 +392,13 @@ with st.form("filters", clear_on_submit=False):
     with r3: kw3 = st.text_input("Keyword 3")
     with r4: title_code_only = st.checkbox("Title/Code only", value=True)
 
+    # --- Open calls only ---
+    open_calls_only = st.checkbox(
+        "Open calls only (deadline later than today)",
+        value=False,
+        help="Keeps only entries whose final Deadline is strictly after today's date (Europe/Brussels)."
+    )
+
     # --- Horizon-specific ---
     st.subheader("Horizon-specific")
     h1,h2,h3 = st.columns(3)
@@ -416,7 +423,9 @@ if applied or not st.session_state.crit33:
         types=types_sel, kws=[kw1,kw2,kw3], kw_mode=kw_mode, title_code_only=title_code_only,
         budget_range=budget_range,
         clusters=clusters_sel, dests=dests_sel, trls=trls_sel,
-        managing_authority=ma_sel, key_action=ka_sel
+        managing_authority=ma_sel, key_action=ka_sel,
+        open_calls_only=open_calls_only
+       
     )
 crit = st.session_state.crit33
 
@@ -438,6 +447,9 @@ def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
         df = df[df["opening_year"].isin(crit["open_years"])]
     if crit["deadline_years"]:
         df = df[df["deadline_year"].isin(crit["deadline_years"])]
+    if crit.get("open_calls_only"):
+        today = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
+        df = df[df["deadline"].notna() & (df["deadline"] > today)]
     if crit["types"]:
         df = df[df.get("type_of_action").isin(crit["types"])]
     lo, hi = crit["budget_range"]
