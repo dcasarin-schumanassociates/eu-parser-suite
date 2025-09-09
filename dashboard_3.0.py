@@ -325,7 +325,14 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
 
 # --------------------------------- UI ---------------------------------
 st.set_page_config(page_title="Funding Dashboard – app_b3.3", layout="wide")
-st.title("Funding Dashboard — Horizon & Erasmus · app_b3.3")
+st.title("Funding Dashboard — Horizon & Erasmus · V3.0")
+
+st.info(
+    "📂 Please upload the latest parsed Excel file.\n\n"
+    "➡️ Location hint:\n\n"
+    "- **3.SA Practices** → Central Systems and Bid Management → 1. Central Systems → 2. CS EU PROGRAMMES Area → 4. Horizon Europe → CALENDAR OF CALLS FOR PROPOSALS → 4. WPs 2026-2027 → Coding Davide\n\n"
+    "👉 Look for *Horizon Calls - 26_27 V1.1*.\n"
+)
 
 upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
 if not upl:
