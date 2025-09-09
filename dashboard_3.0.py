@@ -330,8 +330,8 @@ st.title("Funding Dashboard — Horizon & Erasmus · V3.0")
 st.info(
     "📂 Please upload the latest parsed Excel file.\n\n"
     "➡️ Location hint:\n\n"
-    "- **3.SA Practices** → Central Systems and Bid Management → 1. Central Systems → 2. CS EU PROGRAMMES Area → 4. Horizon Europe → CALENDAR OF CALLS FOR PROPOSALS → 4. WPs 2026-2027 → Coding Davide\n\n"
-    "👉 Look for *Horizon Calls - 26_27 V1.1*.\n"
+    "- **3.SA Practices** → Central Systems and Bid Management → 1. Central Systems\n\n"
+    "👉 Look for *Central System Funding Compass Database*.\n"
 )
 
 upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
