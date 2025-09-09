@@ -325,7 +325,7 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
 
 # --------------------------------- UI ---------------------------------
 
-t.set_page_config(page_title="Funding Dashboard", layout="wide")
+st.set_page_config(page_title="Funding Dashboard", layout="wide")
 
 # Global CSS
 st.markdown(
@@ -365,8 +365,8 @@ st.title("Funding Dashboard")
 st.info(
     "📂 Please upload the latest parsed Excel file.\n\n"
     "➡️ Location hint:\n\n"
-    "- **3.SA Practices** → Central Systems and Bid Management → 1. Central Systems → 2. CS EU PROGRAMMES Area → 4. Horizon Europe → CALENDAR OF CALLS FOR PROPOSALS → 4. WPs 2026-2027 → Coding Davide\n\n"
-    "👉 Look for *Horizon Calls - 26_27*.\n"
+    "- **3.SA Practices** → Central Systems and Bid Management → 1. Central Systems\n\n"
+    "👉 Look for *Central System Funding Compass Database*.\n"
 )
 
 upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
@@ -377,9 +377,9 @@ if not upl:
 sheets = get_sheet_names(upl.getvalue())
 c1, c2 = st.columns(2)
 with c1:
-    hz_sheet = st.selectbox("Horizon sheet", options=sheets, index=0)
+    hz_sheet = st.selectbox("Horizon Database", options=sheets, index=0)
 with c2:
-    er_sheet = st.selectbox("Erasmus sheet", options=sheets, index=min(1, len(sheets)-1))
+    er_sheet = st.selectbox("Erasmus Database", options=sheets, index=min(1, len(sheets)-1))
 
 # Load each programme independently
 df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe")
