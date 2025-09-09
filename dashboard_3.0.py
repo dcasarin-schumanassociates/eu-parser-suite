@@ -325,6 +325,22 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
 
 # --------------------------------- UI ---------------------------------
 st.set_page_config(page_title="Funding Dashboard – app_b3.3", layout="wide")
+
+# Logo (optional)
+try:
+    with open("logo.png", "rb") as f:
+        data_b64 = base64.b64encode(f.read()).decode("utf-8")
+    st.markdown(
+        f"""
+        <div style="text-align: center;">
+            <img src="data:image/png;base64,{data_b64}" width="250">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+except Exception:
+    pass
+
 st.title("Funding Dashboard — Horizon & Erasmus · V3.0")
 
 st.info(
