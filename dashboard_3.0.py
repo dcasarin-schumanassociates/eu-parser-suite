@@ -1,10 +1,7 @@
-# app_b3_2.py — Streamlit Funding Dashboard
-# Two separate filter blocks (Horizon & Erasmus), year "buttons", and stacked Gantts
-
+# app_b3_2.py — Streamlit Funding Dashboard (Two Gantts; two-tier filters; single-bar Altair)
 from __future__ import annotations
 
-import io
-import re
+import io, base64, re
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
@@ -12,8 +9,20 @@ import pandas as pd
 import streamlit as st
 import altair as alt
 
-# ---------------------- Column mapping (tune if headers differ) ----------------------
+# Optional DOCX (for shortlist export)
+try:
+    from docx import Document
+    from docx.shared import Pt, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    DOCX_AVAILABLE = True
+except Exception:
+    DOCX_AVAILABLE = False
+
+# ---------------------- Column mapping (extend/tune as needed) ----------------------
+# Map your Excel headers to canonical snake_case columns the app expects.
+# Add Erasmus-specific fields: Managing Authority, Key Action
 COLUMN_MAP = {
+    "Programme": "programme",
     "Code": "code",
     "Title": "title",
     "Opening Date": "opening_date",
@@ -24,9 +33,12 @@ COLUMN_MAP = {
     "Second Stage deadline": "second_deadline",
     "Two-Stage": "two_stage",
     "Cluster": "cluster",
-    "Destination": "destination_or_strand",
-    "Strand": "destination_or_strand",
+    "Destination": "destination",
+    "Destination / Strand": "destination",
+    "Destination/Strand": "destination",
+    "Strand": "destination",
     "Budget Per Project": "budget_per_project_eur",
+    "Budget per project": "budget_per_project_eur",
     "Total Budget": "total_budget_eur",
     "Number of Projects": "num_projects",
     "Type of Action": "type_of_action",
@@ -38,23 +50,31 @@ COLUMN_MAP = {
     "Source Filename": "source_filename",
     "Version Label": "version_label",
     "Parsed On (UTC)": "parsed_on_utc",
+    # Erasmus-specific:
+    "Managing Authority": "managing_authority",
+    "Key Action": "key_action",
 }
-
-SEARCHABLE_COLUMNS = (
-    "code","title","call_name","expected_outcome","scope","full_text",
-    "cluster","destination_or_strand","type_of_action","trl"
-)
 
 DISPLAY_COLS = [
     "programme","code","title","opening_date","deadline",
+    "type_of_action","budget_per_project_eur",
+    "cluster","destination","trl",
+    "managing_authority","key_action",
     "first_deadline","second_deadline","two_stage",
-    "cluster","destination_or_strand","type_of_action","trl",
-    "budget_per_project_eur","total_budget_eur","num_projects",
     "call_name","version_label","source_filename","parsed_on_utc",
 ]
 
+SEARCHABLE_COLUMNS = (
+    "code","title","call_name","expected_outcome","scope","full_text",
+    "cluster","destination","type_of_action","trl","managing_authority","key_action"
+)
 
 # --------------------------------- Helpers ---------------------------------
+def wrap_label(text: str, width=60, max_lines=3) -> str:
+    s = str(text or "")
+    chunks = [s[i:i+width] for i in range(0, len(s), width)]
+    return "\n".join(chunks[:max_lines]) if chunks else "—"
+
 def safe_date_series(s):
     """Parse dates robustly; try day-first then non-day-first."""
     out = pd.to_datetime(s, errors="coerce", dayfirst=True)
@@ -83,7 +103,7 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
         if c in df.columns:
             df[c] = safe_date_series(df[c])
 
-    # 5) two-stage
+    # 5) two-stage flag
     if "two_stage" in df.columns:
         df["two_stage"] = (
             df["two_stage"].astype(str).str.strip().str.lower()
@@ -106,25 +126,11 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     else:
         df["closing_date_any"] = pd.NaT
 
+    # 8) years for filters (Opening/Deadline)
+    df["opening_year"]  = df["opening_date"].dt.year
+    df["deadline_year"] = df["deadline"].dt.year
+
     return df
-
-def wrap_label(text: str, width=60, max_lines=3) -> str:
-    s = str(text or "")
-    chunks = [s[i:i+width] for i in range(0, len(s), width)]
-    return "\n".join(chunks[:max_lines]) if chunks else "—"
-
-def unique_y_labels(g: pd.DataFrame) -> pd.Series:
-    """Guarantee unique Y labels to prevent Altair stacking."""
-    if "code" in g.columns and g["code"].notna().any():
-        base = g["code"].fillna("").astype(str)
-    elif "title" in g.columns and g["title"].notna().any():
-        base = g["title"].fillna("").astype(str)
-    else:
-        base = pd.Series([f"row-{i}" for i in range(len(g))], index=g.index)
-    dup = base.duplicated(keep=False)
-    if dup.any():
-        base = base + g.groupby(base).cumcount().astype(str).radd("#")
-    return base.map(lambda s: wrap_label(s, width=100, max_lines=5))
 
 def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
     start = pd.Timestamp(min_x).to_period("M").start_time
@@ -135,8 +141,67 @@ def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
         rows.append({"start": months[i], "end": months[i+1], "band": i % 2})
     return pd.DataFrame(rows)
 
-def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", title: str = ""):
+def safe_bounds(series, start_fb="2000-01-01", end_fb="2100-12-31"):
+    s = pd.to_datetime(series, errors="coerce").dropna()
+    if s.empty:
+        return (pd.to_datetime(start_fb).date(), pd.to_datetime(end_fb).date())
+    lo, hi = s.min().date(), s.max().date()
+    if lo == hi:  # keep axis valid
+        hi = (pd.to_datetime(hi) + pd.Timedelta(days=1)).date()
+    return lo, hi
+
+def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
+    terms = [t.strip().lower() for t in terms if t and str(t).strip()]
+    if not terms:
+        return df
+    hay = df["_search_title"] if title_code_only else df["_search_all"]
+    if mode.upper() == "AND":
+        pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
+    else:
+        pattern = "(" + "|".join(re.escape(t) for t in terms) + ")"
+    return df[hay.str.contains(pattern, regex=True, na=False)]
+
+# ------------------------------- I/O (cached) --------------------------------
+@st.cache_data(show_spinner=False)
+def get_sheet_names(file_bytes: bytes) -> List[str]:
+    xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    return xls.sheet_names
+
+@st.cache_data(show_spinner=False)
+def load_programme(file_bytes: bytes, sheet_name: str, programme_name: str) -> pd.DataFrame:
+    xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    raw = pd.read_excel(xls, sheet_name=sheet_name)
+    return canonicalise(raw, programme_name)
+
+# --------------------------- Single-bar-per-row prep ---------------------------
+def build_singlebar_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """One bar per row: Opening → Deadline. No stage lines."""
+    g = df.copy()
+    # robust Y label: code → title → index; ensure uniqueness to avoid stacking
+    if "code" in g.columns and g["code"].notna().any():
+        base_label = g["code"].fillna("").astype(str)
+    elif "title" in g.columns and g["title"].notna().any():
+        base_label = g["title"].fillna("").astype(str)
+    else:
+        base_label = pd.Series([f"row-{i}" for i in range(len(g))], index=g.index)
+
+    dup_mask = base_label.duplicated(keep=False)
+    if dup_mask.any():
+        base_label = base_label + g.groupby(base_label).cumcount().astype(str).radd("#")
+
+    g["y_label"] = base_label.map(lambda s: wrap_label(s, width=100, max_lines=5))
+    g["title_inbar"] = g.get("title","").astype(str).map(lambda s: wrap_label(s, width=100, max_lines=3))
+
+    g = g[pd.notna(g["opening_date"]) & pd.notna(g["deadline"]) & (g["opening_date"] <= g["deadline"])].copy()
     if g.empty:
+        return g
+
+    g["bar_days"] = (g["deadline"] - g["opening_date"]).dt.days
+    g["mid"] = g["opening_date"] + (g["deadline"] - g["opening_date"])/2
+    return g.sort_values(["deadline","opening_date"])
+
+def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", title: str = ""):
+    if g is None or g.empty:
         return None
 
     min_x = min(g["opening_date"].min(), g["deadline"].min())
@@ -189,23 +254,18 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
                 scale=alt.Scale(domain=[domain_min, domain_max])),
         x2="deadline:T",
         color=alt.Color(color_field + ":N",
-                        legend=alt.Legend(title=color_field.replace("_"," ").title(), orient="top", direction="horizontal", offset=100),
+                        legend=alt.Legend(title=color_field.replace("_"," ").title(),
+                                          orient="top", direction="horizontal", offset=100),
                         scale=alt.Scale(scheme="set2")),
         tooltip=[
             alt.Tooltip("title:N", title="Title"),
             alt.Tooltip("opening_date:T", title="Opening", format="%d %b %Y"),
             alt.Tooltip("deadline:T", title="Deadline", format="%d %b %Y"),
+            alt.Tooltip(color_field + ":N", title=color_field.replace("_"," ").title()),
         ]
     )
 
-    # optional thin markers for Stage 1/2 (no extra bars)
-    rule1 = alt.Chart(g[g.get("first_deadline").notna()]).mark_rule(size=1, color="#00000030").encode(
-        x="first_deadline:T", y="y_label:N"
-    ) if "first_deadline" in g.columns else None
-    rule2 = alt.Chart(g[g.get("second_deadline").notna()]).mark_rule(size=1, color="#00000030").encode(
-        x="second_deadline:T", y="y_label:N"
-    ) if "second_deadline" in g.columns else None
-
+    # date labels + in-bar title (no stage lines)
     start_labels = base.mark_text(align="right", dx=-4, dy=5, fontSize=10, color="#111").encode(
         x="opening_date:T", text=alt.Text("opening_date:T", format="%d %b %Y"))
     end_labels = base.mark_text(align="left", dx=4, dy=5, fontSize=10, color="#111").encode(
@@ -216,127 +276,74 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
         opacity=alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     )
 
-    layers = [month_shade, month_grid, bars, start_labels, end_labels, inbar, month_labels, today_rule, today_label]
-    if rule1 is not None: layers.append(rule1)
-    if rule2 is not None: layers.append(rule2)
-
-    chart = alt.layer(*layers).properties(
-        height=max(800, len(y_order)*row_h), width='container',
-        padding={"top":50,"bottom":30,"left":10,"right":10}
-    ).configure_axis(
-        grid=False, domain=True, domainWidth=1
-    ).configure_view(
-        continuousHeight=500, continuousWidth=500, strokeWidth=0, clip=False
-    ).interactive(bind_x=True)
+    chart = (month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels + today_rule + today_label)\
+        .properties(height=max(800, len(y_order)*row_h), width='container',
+                    padding={"top":50,"bottom":30,"left":10,"right":10})\
+        .configure_axis(grid=False, domain=True, domainWidth=1)\
+        .configure_view(continuousHeight=500, continuousWidth=500, strokeWidth=0, clip=False)\
+        .interactive(bind_x=True)
 
     return chart if not title else chart.properties(title=title)
 
+# --------------------------------- Reports ---------------------------------
+def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], title="Funding Report") -> bytes:
+    if not DOCX_AVAILABLE:
+        raise RuntimeError("python-docx not installed")
+    doc = Document()
+    h = doc.add_heading(title, level=0); h.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p = doc.add_paragraph(f"Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}"); p.runs[0].font.size = Pt(9)
 
-# ------------------------------- I/O (cached) --------------------------------
-@st.cache_data(show_spinner=False)
-def get_sheet_names(file_bytes: bytes) -> List[str]:
-    xls = pd.ExcelFile(io.BytesIO(file_bytes))
-    return xls.sheet_names
+    table = doc.add_table(rows=1, cols=5); hdr = table.rows[0].cells
+    for i, t in enumerate(["Programme","Code","Title","Opening","Deadline"]): hdr[i].text = t
+    for _, r in calls_df.iterrows():
+        row = table.add_row().cells
+        row[0].text = str(r.get("programme","")); row[1].text = str(r.get("code","")); row[2].text = str(r.get("title",""))
+        op, dl = r.get("opening_date"), r.get("deadline")
+        row[3].text = op.strftime("%d %b %Y") if pd.notna(op) else "-"
+        row[4].text = dl.strftime("%d %b %Y") if pd.notna(dl) else "-"
 
-@st.cache_data(show_spinner=False)
-def load_programme(file_bytes: bytes, sheet_name: str, programme_name: str) -> pd.DataFrame:
-    xls = pd.ExcelFile(io.BytesIO(file_bytes))
-    raw = pd.read_excel(xls, sheet_name=sheet_name)
-    return canonicalise(raw, programme_name)
+    for _, r in calls_df.iterrows():
+        doc.add_page_break()
+        doc.add_heading(f"{r.get('code','')} — {r.get('title','')}", level=1)
+        lines = []
+        lines.append(f"Programme: {r.get('programme','-')}")
+        lines.append(f"Cluster: {r.get('cluster','-')}")
+        lines.append(f"Destination: {r.get('destination','-')}")
+        lines.append(f"Type of Action: {r.get('type_of_action','-')}")
+        trl_val = r.get("trl"); lines.append(f"TRL: {int(trl_val) if pd.notna(trl_val) else '-'}")
+        ma = r.get("managing_authority"); ka = r.get("key_action")
+        if pd.notna(ma) or pd.notna(ka):
+            lines.append(f"Managing Authority: {ma if pd.notna(ma) else '-'}")
+            lines.append(f"Key Action: {ka if pd.notna(ka) else '-'}")
+        op, dl = r.get("opening_date"), r.get("deadline")
+        lines.append(f"Opening: {op:%d %b %Y}" if pd.notna(op) else "Opening: -")
+        lines.append(f"Deadline: {dl:%d %b %Y}" if pd.notna(dl) else "Deadline: -")
+        doc.add_paragraph("\n".join(lines))
+        notes = (notes_by_code or {}).get(str(r.get("code","")), "")
+        doc.add_heading("Notes", level=2); doc.add_paragraph(notes if notes else "-")
 
-
-# ---------------------------- Filter widgets utils ----------------------------
-def year_buttons(label: str, years: List[int], state_key: str) -> List[int]:
-    """
-    Render a compact row of checkbox 'buttons' for years.
-    Returns the list of selected years, stored in st.session_state[state_key].
-    """
-    years = sorted([int(y) for y in set(years) if pd.notna(y)])
-    if state_key not in st.session_state:
-        st.session_state[state_key] = years[:]  # default: all selected
-    sel = set(st.session_state[state_key])
-
-    st.caption(label)
-    cols = st.columns(min(8, max(1, len(years)))) if years else [st.container()]
-    # distribute across rows of 8
-    for i, y in enumerate(years):
-        c = cols[i % len(cols)]
-        with c:
-            ck = st.checkbox(str(y), value=(y in sel), key=f"{state_key}_{y}")
-            if ck: sel.add(y)
-            else:
-                if y in sel: sel.remove(y)
-
-    st.session_state[state_key] = sorted(sel)
-    return sorted(sel)
-
-
-def apply_local_filters(
-    df0: pd.DataFrame,
-    kw_terms: List[str],
-    kw_mode: str,
-    title_code_only: bool,
-    clusters: List[str],
-    dests: List[str],
-    types: List[str],
-    trls: List[str],
-    budget_range: Tuple[float,float],
-    open_years: List[int],
-    deadline_years: List[int],
-) -> pd.DataFrame:
-    df = df0.copy()
-
-    # keywords
-    terms = [t.strip().lower() for t in kw_terms if t and str(t).strip()]
-    hay = df["_search_title"] if title_code_only else df["_search_all"]
-    if terms:
-        if kw_mode == "AND":
-            pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
-        else:
-            pattern = "(" + "|".join(re.escape(t) for t in terms) + ")"
-        df = df[hay.str.contains(pattern, regex=True, na=False)]
-
-    # categorical
-    if clusters: df = df[df.get("cluster").isin(clusters)]
-    if dests:    df = df[df.get("destination_or_strand").isin(dests)]
-    if types:    df = df[df.get("type_of_action").isin(types)]
-    if trls:     df = df[df.get("trl").dropna().astype("Int64").astype(str).isin(trls)]
-
-    # budgets
-    lo, hi = budget_range
-    df = df[df.get("budget_per_project_eur").fillna(0).between(lo, hi)]
-
-    # year buttons
-    if open_years:
-        df = df[pd.to_datetime(df["opening_date"], errors="coerce").dt.year.isin(open_years)]
-    if deadline_years:
-        df = df[pd.to_datetime(df["deadline"], errors="coerce").dt.year.isin(deadline_years)]
-
-    return df
-
-
-def singlebar_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Prep for Gantt: one bar per row, with unique y_label and stage markers."""
-    g = df.copy()
-    if g.empty:
-        return g
-    g = g[pd.notna(g["opening_date"]) & pd.notna(g["deadline"]) & (g["opening_date"] <= g["deadline"])].copy()
-    g["y_label"] = unique_y_labels(g)
-    g["title_inbar"] = g.get("title","").astype(str).map(lambda s: wrap_label(s, width=100, max_lines=3))
-    g["bar_days"] = (g["deadline"] - g["opening_date"]).dt.days
-    g["mid"] = g["opening_date"] + (g["deadline"] - g["opening_date"]) / 2
-    return g.sort_values(["deadline","opening_date"])
-
+    bio = io.BytesIO(); doc.save(bio); bio.seek(0); return bio.getvalue()
 
 # ----------------------------------- UI -----------------------------------
-st.set_page_config(page_title="Funding Dashboard – app_b3_2", layout="wide")
-st.title("Funding Dashboard — Horizon & Erasmus (app_b3_2)")
+st.set_page_config(page_title="Funding Dashboard – app_b3.2", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    .scroll-container { overflow-x: auto; overflow-y: auto; max-height: 900px; padding: 16px; border: 1px solid #eee; border-radius: 8px; }
+    .main .block-container { padding-left: 1.5rem; padding-right: 1.5rem; max-width: 95vw; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.title("Funding Dashboard — Horizon & Erasmus (Two Gantts) · app_b3.2")
 
 upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
 if not upl:
     st.stop()
 
-# Sheet selectors (explicit, to avoid mis-detection)
+# Detect sheets and allow override
 sheets = get_sheet_names(upl.getvalue())
 c1, c2 = st.columns(2)
 with c1:
@@ -344,180 +351,204 @@ with c1:
 with c2:
     er_sheet = st.selectbox("Erasmus sheet", options=sheets, index=min(1, len(sheets)-1))
 
-# Load independently
+# Load each programme independently
 df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe")
 df_e = load_programme(upl.getvalue(), er_sheet, "Erasmus+")
 
-# ---------------------------- Horizon filters block ----------------------------
-st.markdown("## 🔵 Horizon Europe — Filters")
-prog = "Horizon Europe"
-df0 = df_h
+# ------- Build filter choices (combined where relevant) -------
+# Common filters: Opening year(s), Deadline year(s), Budget, Keyword, Type of Action
+all_df = pd.concat([df_h.assign(programme="Horizon Europe"),
+                    df_e.assign(programme="Erasmus+")], ignore_index=True)
 
-# choices from Horizon only
-cluster_opts_h = sorted([c for c in df0.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c])
-type_opts_h    = sorted([t for t in df0.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t])
-trl_opts_h     = sorted([str(int(x)) for x in df0.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
-dest_opts_h    = sorted([d for d in df0.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d])
+opening_years  = sorted([int(y) for y in all_df["opening_year"].dropna().unique()])
+deadline_years = sorted([int(y) for y in all_df["deadline_year"].dropna().unique()])
+type_opts      = sorted([t for t in all_df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t!=""])
 
-with st.form("filters_hz"):
+# Programme-specific
+cluster_opts   = sorted([c for c in df_h.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c!=""])
+dest_opts      = sorted([d for d in df_h.get("destination", pd.Series(dtype=object)).dropna().unique().tolist() if d!=""])
+trl_opts       = sorted([str(int(x)) for x in df_h.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
+
+ma_opts        = sorted([m for m in df_e.get("managing_authority", pd.Series(dtype=object)).dropna().unique().tolist() if m!=""])
+ka_opts        = sorted([k for k in df_e.get("key_action", pd.Series(dtype=object)).dropna().unique().tolist() if k!=""])
+
+# Budget slider (use combined range)
+bud_series = pd.to_numeric(all_df.get("budget_per_project_eur"), errors="coerce").dropna()
+if bud_series.empty:
+    min_bud, max_bud = 0.0, 1_000_000.0
+else:
+    min_bud, max_bud = float(bud_series.min()), float(bud_series.max())
+    if not (min_bud < max_bud):
+        min_bud, max_bud = max(min_bud, 0.0), min_bud + 100000.0
+rng = max_bud - min_bud
+step = max(1e4, round(rng / 50, -3)) if rng else 10000.0
+
+with st.form("filters", clear_on_submit=False):
+    st.header("Filters")
+
+    # --- Common filters ---
+    st.subheader("Common filters")
     a,b,c = st.columns(3)
-    with a: clusters_h = st.multiselect("Cluster (Horizon)", cluster_opts_h)
-    with b: dests_h    = st.multiselect("Destination/Strand (Horizon)", dest_opts_h)
-    with c: types_h    = st.multiselect("Type of Action (Horizon)", type_opts_h)
+    with a:
+        open_year_sel = st.multiselect("Opening year(s)", opening_years, default=opening_years)
+    with b:
+        deadline_year_sel = st.multiselect("Deadline year(s)", deadline_years, default=deadline_years)
+    with c:
+        types_sel = st.multiselect("Type of Action", type_opts)
 
     d,e = st.columns(2)
-    with d: trls_h = st.multiselect("TRL (Horizon)", trl_opts_h)
+    with d:
+        budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
     with e:
-        title_code_only_h = st.checkbox("Search only Title & Code", value=True)
-        kw_mode_h = st.radio("Keyword combine", ["AND","OR"], index=0, horizontal=True)
+        kw_mode = st.radio("Keyword combine", ["AND","OR"], index=0, horizontal=True)
 
-    r1,r2,r3 = st.columns([2,2,2])
-    with r1: kw1_h = st.text_input("Keyword 1 (Horizon)")
-    with r2: kw2_h = st.text_input("Keyword 2 (Horizon)")
-    with r3: kw3_h = st.text_input("Keyword 3 (Horizon)")
+    r1,r2,r3,r4 = st.columns([2,2,2,1])
+    with r1: kw1 = st.text_input("Keyword 1")
+    with r2: kw2 = st.text_input("Keyword 2")
+    with r3: kw3 = st.text_input("Keyword 3")
+    with r4: title_code_only = st.checkbox("Title/Code only", value=True)
 
-    # budget slider from Horizon only
-    bud_series_h = pd.to_numeric(df0.get("budget_per_project_eur"), errors="coerce").dropna()
-    if bud_series_h.empty:
-        min_bud_h, max_bud_h = 0.0, 1_000_000.0
-    else:
-        min_bud_h, max_bud_h = float(bud_series_h.min()), float(bud_series_h.max())
-        if not (min_bud_h < max_bud_h):
-            min_bud_h, max_bud_h = max(min_bud_h, 0.0), min_bud_h + 100000.0
-    rng_h = max_bud_h - min_bud_h
-    step_h = max(1e4, round(rng_h/50, -3)) if rng_h else 10000.0
-    budget_h = st.slider("Budget per project (EUR, Horizon)", min_bud_h, max_bud_h, (min_bud_h, max_bud_h), step=step_h)
+    # --- Horizon-specific ---
+    st.subheader("Horizon-specific")
+    h1,h2,h3 = st.columns(3)
+    with h1: clusters_sel = st.multiselect("Cluster", cluster_opts)
+    with h2: dests_sel    = st.multiselect("Destination", dest_opts)
+    with h3: trls_sel     = st.multiselect("TRL", trl_opts)
 
-    submitted_h = st.form_submit_button("Apply Horizon filters")
+    # --- Erasmus-specific ---
+    st.subheader("Erasmus+-specific")
+    e1,e2 = st.columns(2)
+    with e1: ma_sel = st.multiselect("Managing Authority", ma_opts)
+    with e2: ka_sel = st.multiselect("Key Action", ka_opts)
 
-# Year buttons (outside form so they react instantly)
-open_years_h = year_buttons("Opening years (Horizon)", df_h["opening_date"].dt.year.dropna().astype(int).tolist(), "open_years_h")
-deadline_years_h = year_buttons("Deadline years (Horizon)", df_h["deadline"].dt.year.dropna().astype(int).tolist(), "deadline_years_h")
+    applied = st.form_submit_button("Apply filters")
 
-# Apply Horizon filters
-fh = apply_local_filters(
-    df_h,
-    [kw1_h, kw2_h, kw3_h],
-    kw_mode_h,
-    title_code_only_h,
-    clusters_h, dests_h, types_h, trls_h,
-    budget_h,
-    open_years_h, deadline_years_h
-)
+# Persist criteria
+if "crit32" not in st.session_state:
+    st.session_state.crit32 = {}
+if applied or not st.session_state.crit32:
+    st.session_state.crit32 = dict(
+        open_years=open_year_sel, deadline_years=deadline_year_sel,
+        types=types_sel, kws=[kw1,kw2,kw3], kw_mode=kw_mode, title_code_only=title_code_only,
+        budget_range=budget_range,
+        clusters=clusters_sel, dests=dests_sel, trls=trls_sel,
+        managing_authority=ma_sel, key_action=ka_sel
+    )
+crit = st.session_state.crit32
 
-st.caption(f"Horizon rows after filters: {len(fh)}")
+# ------------- Filtering (applied per programme, no merging) -------------
+def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
+    df = df0.copy()
+    # years
+    if crit["open_years"]:
+        df = df[df["opening_year"].isin(crit["open_years"])]
+    if crit["deadline_years"]:
+        df = df[df["deadline_year"].isin(crit["deadline_years"])]
+    # type of action
+    if crit["types"]:
+        df = df[df.get("type_of_action").isin(crit["types"])]
+    # budget
+    lo, hi = crit["budget_range"]
+    df = df[df.get("budget_per_project_eur").fillna(0).between(lo, hi)]
+    # keywords
+    df = multi_keyword_filter(df, crit["kws"], crit["kw_mode"], crit["title_code_only"])
+    return df
 
-# ---------------------------- Erasmus filters block ----------------------------
-st.markdown("## 🟣 Erasmus+ — Filters")
-prog = "Erasmus+"
-df0 = df_e
+def apply_horizon_filters(df0: pd.DataFrame) -> pd.DataFrame:
+    df = apply_common_filters(df0)
+    if crit["clusters"]: df = df[df.get("cluster").isin(crit["clusters"])]
+    if crit["dests"]:    df = df[df.get("destination").isin(crit["dests"])]
+    if crit["trls"]:
+        df = df[df.get("trl").dropna().astype("Int64").astype(str).isin(crit["trls"])]
+    return df
 
-cluster_opts_e = sorted([c for c in df0.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c])
-type_opts_e    = sorted([t for t in df0.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t])
-trl_opts_e     = sorted([str(int(x)) for x in df0.get("trl", pd.Series(dtype=float)).dropna().unique() if pd.notna(x)])
-dest_opts_e    = sorted([d for d in df0.get("destination_or_strand", pd.Series(dtype=object)).dropna().unique().tolist() if d])
+def apply_erasmus_filters(df0: pd.DataFrame) -> pd.DataFrame:
+    df = apply_common_filters(df0)
+    if crit["managing_authority"]: df = df[df.get("managing_authority").isin(crit["managing_authority"])]
+    if crit["key_action"]:         df = df[df.get("key_action").isin(crit["key_action"])]
+    return df
 
-with st.form("filters_er"):
-    a,b,c = st.columns(3)
-    with a: clusters_e = st.multiselect("Cluster (Erasmus)", cluster_opts_e)
-    with b: dests_e    = st.multiselect("Destination/Strand (Erasmus)", dest_opts_e)
-    with c: types_e    = st.multiselect("Type of Action (Erasmus)", type_opts_e)
+fh = apply_horizon_filters(df_h)
+fe = apply_erasmus_filters(df_e)
 
-    d,e = st.columns(2)
-    with d: trls_e = st.multiselect("TRL (Erasmus)", trl_opts_e)
-    with e:
-        title_code_only_e = st.checkbox("Search only Title & Code (Erasmus)", value=True)
-        kw_mode_e = st.radio("Keyword combine (Erasmus)", ["AND","OR"], index=0, horizontal=True)
-
-    r1,r2,r3 = st.columns([2,2,2])
-    with r1: kw1_e = st.text_input("Keyword 1 (Erasmus)")
-    with r2: kw2_e = st.text_input("Keyword 2 (Erasmus)")
-    with r3: kw3_e = st.text_input("Keyword 3 (Erasmus)")
-
-    # budget slider from Erasmus only
-    bud_series_e = pd.to_numeric(df0.get("budget_per_project_eur"), errors="coerce").dropna()
-    if bud_series_e.empty:
-        min_bud_e, max_bud_e = 0.0, 1_000_000.0
-    else:
-        min_bud_e, max_bud_e = float(bud_series_e.min()), float(bud_series_e.max())
-        if not (min_bud_e < max_bud_e):
-            min_bud_e, max_bud_e = max(min_bud_e, 0.0), min_bud_e + 100000.0
-    rng_e = max_bud_e - min_bud_e
-    step_e = max(1e4, round(rng_e/50, -3)) if rng_e else 10000.0
-    budget_e = st.slider("Budget per project (EUR, Erasmus)", min_bud_e, max_bud_e, (min_bud_e, max_bud_e), step=step_e)
-
-    submitted_e = st.form_submit_button("Apply Erasmus filters")
-
-# Year buttons (outside form so they react instantly)
-open_years_e = year_buttons("Opening years (Erasmus)", df_e["opening_date"].dt.year.dropna().astype(int).tolist(), "open_years_e")
-deadline_years_e = year_buttons("Deadline years (Erasmus)", df_e["deadline"].dt.year.dropna().astype(int).tolist(), "deadline_years_e")
-
-# Apply Erasmus filters
-fe = apply_local_filters(
-    df_e,
-    [kw1_e, kw2_e, kw3_e],
-    kw_mode_e,
-    title_code_only_e,
-    clusters_e, dests_e, types_e, trls_e,
-    budget_e,
-    open_years_e, deadline_years_e
-)
-
-st.caption(f"Erasmus rows after filters: {len(fe)}")
+st.caption(f"Rows after filters — Horizon: {len(fh)} | Erasmus: {len(fe)}")
 
 # ------------------------------ Tabs ------------------------------
-tab1, tab2, tab3 = st.tabs(["📅 Gantt(s)", "📋 Tables", "📤 Export"])
+tab_hz, tab_er, tab_tbl, tab_short = st.tabs(["📅 Gantt — Horizon", "📅 Gantt — Erasmus", "📋 Tables", "📝 Shortlist"])
 
-with tab1:
-    st.subheader("Gantt — one bar per row (Opening → Deadline); thin markers for Stage 1/2")
-    # STACKED: Horizon first, then Erasmus
-    g_h = singlebar_rows(fh)
-    st.markdown("### Horizon Europe")
-    if g_h.empty:
-        st.info("No valid Horizon rows/dates.")
+with tab_hz:
+    st.subheader("Gantt — Horizon Europe (Opening → Deadline)")
+    g_h = build_singlebar_rows(fh)
+    if g_h.empty: st.info("No valid Horizon rows/dates.")
     else:
+        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
         st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-    g_e = singlebar_rows(fe)
-    st.markdown("### Erasmus+")
-    if g_e.empty:
-        st.info("No valid Erasmus rows/dates.")
+with tab_er:
+    st.subheader("Gantt — Erasmus+ (Opening → Deadline)")
+    g_e = build_singlebar_rows(fe)
+    if g_e.empty: st.info("No valid Erasmus rows/dates.")
     else:
+        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
         st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-with tab2:
-    st.subheader("Tables (per programme)")
+with tab_tbl:
+    st.subheader("Tables")
     show_cols_h = [c for c in DISPLAY_COLS if c in fh.columns]
     show_cols_e = [c for c in DISPLAY_COLS if c in fe.columns]
+    colA, colB = st.columns(2)
+    with colA:
+        st.markdown(f"### Horizon Europe ({len(fh)})")
+        if len(fh): st.dataframe(fh[show_cols_h], use_container_width=True, hide_index=True)
+        else: st.caption("— no rows —")
+    with colB:
+        st.markdown(f"### Erasmus+ ({len(fe)})")
+        if len(fe): st.dataframe(fe[show_cols_e], use_container_width=True, hide_index=True)
+        else: st.caption("— no rows —")
 
-    with st.expander(f"Horizon Europe — {len(fh)} rows", expanded=True):
-        st.dataframe(fh[show_cols_h], use_container_width=True, hide_index=True)
-    with st.expander(f"Erasmus+ — {len(fe)} rows", expanded=True):
-        st.dataframe(fe[show_cols_e], use_container_width=True, hide_index=True)
+with tab_short:
+    st.subheader("Shortlist & Notes (DOCX)")
+    if "sel32" not in st.session_state: st.session_state.sel32 = set()
+    if "notes32" not in st.session_state: st.session_state.notes32 = {}
 
-with tab3:
-    st.subheader("Quick export (filtered)")
-    cA, cB = st.columns(2)
-    with cA:
-        if not fh.empty:
-            out_h = io.BytesIO()
-            with pd.ExcelWriter(out_h, engine="openpyxl") as xw:
-                fh.to_excel(xw, index=False, sheet_name="Horizon")
-            out_h.seek(0)
-            st.download_button("⬇️ Download Horizon (Excel)", out_h,
-                               file_name=f"horizon_filtered_{datetime.utcnow():%Y%m%d}.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.caption("No Horizon rows to export.")
-    with cB:
-        if not fe.empty:
-            out_e = io.BytesIO()
-            with pd.ExcelWriter(out_e, engine="openpyxl") as xw:
-                fe.to_excel(xw, index=False, sheet_name="Erasmus")
-            out_e.seek(0)
-            st.download_button("⬇️ Download Erasmus (Excel)", out_e,
-                               file_name=f"erasmus_filtered_{datetime.utcnow():%Y%m%d}.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.caption("No Erasmus rows to export.")
+    combined = []
+    if len(fh): combined.append(fh.assign(programme="Horizon Europe"))
+    if len(fe): combined.append(fe.assign(programme="Erasmus+"))
+    ff = pd.concat(combined, ignore_index=True) if combined else pd.DataFrame()
+
+    st.markdown("**Select calls**")
+    for idx, r in ff.sort_values(["closing_date_any","opening_date"]).iterrows():
+        code = str(r.get("code") or ""); title = str(r.get("title") or "")
+        label = f"{code} — {title}".strip(" —")
+        checked = code in st.session_state.sel32
+        new = st.checkbox(label or "(untitled)", value=checked, key=f"sel32_{code}_{idx}")
+        if new and not checked: st.session_state.sel32.add(code)
+        elif (not new) and checked: st.session_state.sel32.discard(code)
+
+    selected_df = ff[ff["code"].astype(str).isin(st.session_state.sel32)]
+    if not selected_df.empty:
+        st.markdown("---")
+        for _, r in selected_df.iterrows():
+            code = str(r.get("code") or "")
+            default = st.session_state.notes32.get(code, "")
+            st.session_state.notes32[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note32_{code}")
+
+        colA, colB = st.columns(2)
+        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b3.2)")
+        with colB: pass
+
+        if st.button("📄 Generate DOCX"):
+            try:
+                if DOCX_AVAILABLE:
+                    data = generate_docx_report(selected_df, st.session_state.notes32, title=title)
+                    st.download_button("⬇️ Download .docx", data=data,
+                                       file_name="funding_report.docx",
+                                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                else:
+                    st.error("python-docx not installed in this environment.")
+            except Exception as e:
+                st.error(f"Failed to generate report: {e}")
+    else:
+        st.info("Select at least one call to add notes and export.")
