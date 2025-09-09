@@ -212,12 +212,12 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 
     month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
         x="start:T", x2="end:T",
-        opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.15]), legend=None),
+        opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.08]), legend=None),
         color=alt.value("#00008B")
     )
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time, freq="MS")
-    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="##808080", strokeWidth=0.2).encode(x="t:T")
+    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#0000FF", strokeWidth=0.3).encode(x="t:T")
     month_labels_df = pd.DataFrame({
         "month": months[:-1], "next_month": months[1:],
         "label": [m.strftime("%b %Y") for m in months[:-1]]
