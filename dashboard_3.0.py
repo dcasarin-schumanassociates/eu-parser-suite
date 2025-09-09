@@ -230,11 +230,11 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     # Today line (Europe/Brussels)
     today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
     today_df = pd.DataFrame({"t":[today_ts]})
-    today_rule = alt.Chart(today_df).mark_rule(color="#4169E1", strokeDash=[6,4], strokeWidth=3).encode(
+    today_rule = alt.Chart(today_df).mark_rule(color="#4169E1", strokeDash=[2,1], strokeWidth=2).encode(
         x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
     )
     today_label = alt.Chart(today_df).mark_text(
-        align="left", baseline="top", dx=4, dy=12, fontSize=11, fontWeight="bold", color="#d62728"
+        align="left", baseline="top", dx=4, dy=12, fontSize=11, fontWeight="bold", color="#4169E1"
     ).encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: "%d %b %Y"'))
 
     y_order = g["y_label"].drop_duplicates().tolist()
