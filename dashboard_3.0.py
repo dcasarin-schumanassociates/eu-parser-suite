@@ -324,7 +324,25 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
     bio = io.BytesIO(); doc.save(bio); bio.seek(0); return bio.getvalue()
 
 # --------------------------------- UI ---------------------------------
+
 st.set_page_config(page_title="Funding Dashboard – app_b3.3", layout="wide")
+
+t.markdown(
+    """
+    <style>
+    .scroll-container {
+        overflow-x: auto;
+        overflow-y: auto;
+        max-height: 900px;          /* vertical scroll for tall charts */
+        padding: 16px;
+        border: 1px solid #eee;
+        border-radius: 8px;
+    }
+    .main .block-container { padding-left: 1.5rem; padding-right: 1.5rem; max-width: 95vw; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # Logo (optional)
 try:
