@@ -470,12 +470,50 @@ tab_hz, tab_er, tab_tbl, tab_full, tab_short = st.tabs([
 
 with tab_hz:
     st.subheader("Gantt — Horizon Europe (Opening → Deadline)")
-    g_h = build_singlebar_rows(fh)
-    if g_h.empty: st.info("No valid Horizon rows/dates.")
+    group_by_cluster = st.checkbox(
+        "Group by cluster (render one Gantt per cluster)",
+        value=False,
+        help="When enabled, the Horizon chart is split into one dropdown per Cluster."
+    )
+
+    if not group_by_cluster:
+        # Regular single Horizon Gantt (as before)
+        g_h = build_singlebar_rows(fh)
+        if g_h.empty:
+            st.info("No valid Horizon rows/dates.")
+        else:
+            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+            st.altair_chart(
+                gantt_singlebar_chart(g_h, color_field="type_of_action"),
+                use_container_width=True
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-        st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Grouped mode: one dropdown per cluster, each with its own Gantt
+        if "cluster" not in fh.columns:
+            st.warning("Column 'cluster' not available in Horizon dataset.")
+        else:
+            # Handle missing/blank clusters and sort by size (desc)
+            tmp = fh.copy()
+            tmp["cluster"] = tmp["cluster"].fillna("— Unspecified —").replace({"": "— Unspecified —"})
+            groups = list(tmp.groupby("cluster", dropna=False))
+            groups.sort(key=lambda kv: len(kv[1]), reverse=True)
+
+            st.caption(f"Clusters found: {len(groups)}")
+
+            for clu_name, gdf in groups:
+                # Build rows for this cluster only
+                g_clu = build_singlebar_rows(gdf)
+                with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
+                    if g_clu.empty:
+                        st.info("No valid rows/dates for this cluster after filters.")
+                    else:
+                        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+                        st.altair_chart(
+                            gantt_singlebar_chart(g_clu, color_field="type_of_action"),
+                            use_container_width=True
+                        )
+                        st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_er:
     st.subheader("Gantt — Erasmus+ (Opening → Deadline)")
@@ -503,7 +541,11 @@ with tab_tbl:
 with tab_full:
     st.subheader("Full Data — Expand rows for details")
 
+    # Reuse existing keyword list for highlighting (if present in your file)
+    kw_list = crit.get("kws", []) if "crit" in locals() or "crit" in globals() else []
+
     def render_row(row, programme: str):
+        # identical renderer as before
         c1, c2 = st.columns(2)
         with c1:
             if pd.notna(row.get("opening_date")):
@@ -518,26 +560,24 @@ with tab_full:
             if pd.notna(row.get("num_projects")):
                 st.markdown(f"📊 **# Projects:** {int(row['num_projects'])}")
 
-        left_bits = [
+        meta_bits = [
             f"🏷️ **Programme:** {programme}",
             f"**Type of Action:** {row.get('type_of_action','-')}",
         ]
-        # Programme-specific metadata
         if programme == "Horizon Europe":
-            left_bits += [
+            meta_bits += [
                 f"**Cluster:** {row.get('cluster','-')}",
                 f"**Destination:** {row.get('destination','-')}",
                 f"**TRL:** {row.get('trl','-')}",
             ]
         else:
-            left_bits += [
+            meta_bits += [
                 f"**Managing Authority:** {row.get('managing_authority','-')}",
                 f"**Key Action:** {row.get('key_action','-')}",
             ]
-        st.markdown(" | ".join(left_bits))
+        st.markdown(" | ".join(meta_bits))
 
-        # Long text sections (if present)
-        kw_list = crit.get("kws", [])
+        # Long text sections (highlight with current keywords)
         if row.get("expected_outcome"):
             with st.expander("🎯 Expected Outcome"):
                 clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("expected_outcome")))))
@@ -557,25 +597,50 @@ with tab_full:
             f"| Parsed on: {row.get('parsed_on_utc','-')}"
         )
 
-    # Horizon section
+    # ---------------- Horizon Europe ----------------
     st.markdown(f"### Horizon Europe ({len(fh)})")
-    if len(fh):
-        for _, r in fh.iterrows():
-            label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
-            with st.expander(label or "(untitled)"):
-                render_row(r, "Horizon Europe")
-    else:
-        st.caption("— no Horizon rows after filters —")
+    group_hz = st.checkbox(
+        "Group Horizon by Cluster (dropdowns)",
+        value=False,
+        help="Show one expander per Cluster; inside each, expand rows for details."
+    )
 
-    # Erasmus section
+    if len(fh) == 0:
+        st.caption("— no Horizon rows after filters —")
+    else:
+        if not group_hz:
+            # Flat list of row expanders (original behaviour)
+            for _, r in fh.iterrows():
+                label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
+                with st.expander(label or "(untitled)"):
+                    render_row(r, "Horizon Europe")
+        else:
+            # Group by cluster → one dropdown per cluster; then row expanders inside
+            tmp = fh.copy()
+            tmp["cluster"] = tmp.get("cluster").fillna("— Unspecified —").replace({"": "— Unspecified —"})
+            groups = list(tmp.groupby("cluster", dropna=False))
+            # show bigger groups first
+            groups.sort(key=lambda kv: len(kv[1]), reverse=True)
+
+            st.caption(f"Clusters found: {len(groups)}")
+            for clu_name, gdf in groups:
+                disp = str(clu_name)
+                with st.expander(f"Cluster: {disp}  ({len(gdf)} calls)", expanded=False):
+                    for _, r in gdf.iterrows():
+                        label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
+                        with st.expander(label or "(untitled)"):
+                            render_row(r, "Horizon Europe")
+
+    # ---------------- Erasmus+ ----------------
     st.markdown(f"### Erasmus+ ({len(fe)})")
-    if len(fe):
+    if len(fe) == 0:
+        st.caption("— no Erasmus rows after filters —")
+    else:
+        # Keep Erasmus+ section unchanged (flat list of row expanders)
         for _, r in fe.iterrows():
             label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
             with st.expander(label or "(untitled)"):
                 render_row(r, "Erasmus+")
-    else:
-        st.caption("— no Erasmus rows after filters —")
 
 with tab_short:
     st.subheader("Shortlist & Notes (DOCX)")
