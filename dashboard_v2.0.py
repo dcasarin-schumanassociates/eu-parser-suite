@@ -265,7 +265,7 @@ def build_altair_chart_from_segments(seg: pd.DataFrame, view_start, view_end):
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time,
                            freq="MS")
-    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#000000", strokeWidth=0.5).encode(x="t:T")
+    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#000000", strokeWidth=0.2).encode(x="t:T")
 
     month_labels_df = pd.DataFrame({
         "month": months[:-1],
