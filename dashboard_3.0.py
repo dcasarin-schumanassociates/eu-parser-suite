@@ -217,7 +217,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     )
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time, freq="MS")
-    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#FFF", strokeWidth=1.5).encode(x="t:T")
+    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="##808080", strokeWidth=0.2).encode(x="t:T")
     month_labels_df = pd.DataFrame({
         "month": months[:-1], "next_month": months[1:],
         "label": [m.strftime("%b %Y") for m in months[:-1]]
@@ -234,7 +234,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
         x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
     )
     today_label = alt.Chart(today_df).mark_text(
-        align="left", baseline="top", dx=4, dy=4, fontSize=11, fontWeight="bold", color="#d62728"
+        align="left", baseline="top", dx=4, dy=8, fontSize=11, fontWeight="bold", color="#d62728"
     ).encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: "%d %b %Y"'))
 
     y_order = g["y_label"].drop_duplicates().tolist()
