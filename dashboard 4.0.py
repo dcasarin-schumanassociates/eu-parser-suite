@@ -176,26 +176,18 @@ def normalize_bullets(text: str) -> str:
     if not isinstance(text, str) or text.strip() == "":
         return ""
     t = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # 1) replace common bullet glyphs with a dash
+    # 1) replace common bullet glyphs (including '') with a dash
     t = re.sub(r"(?m)^[ \t]*[▪◦●•]\s*", "- ", t)
-
-    # 2) also catch lines that start with dash-like glyphs (–, —, hyphen)
+    # 2) also catch lines that start with dash-like glyphs (–, —, plain - at line start)
     t = re.sub(r"(?m)^[ \t]*[–—-]\s+", "- ", t)
-
     # 3) collapse excessive whitespace
     t = re.sub(r"[ \t]+", " ", t)
-
-    # 4) force a newline before any bullet marker if it’s stuck to previous text
+    # 4) ensure bullets aren’t glued to previous line
     t = re.sub(r"(?<!\n)([ \t]+- )", r"\n- ", t)
-
-    # 5) don’t try to generate numeric bullets at all
-    # (so we don’t clash with footnote numbers)
-
-    # 6) tidy blank lines (max 2 in a row)
+    # 5) tidy blank lines (max 2 in a row)
     t = re.sub(r"\n{3,}", "\n\n", t)
-
     return t.strip()
+
 
 def highlight_text(text: str, keywords: list[str], colours=None) -> str:
     if not text:
@@ -259,49 +251,13 @@ def _find_candidate_blocks(text: str) -> list[tuple[int,int,int,str]]:
 
 def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
     """
-    Removes Horizon-style inline footnotes and collects them.
-    Returns (cleaned_text, {num: body}).
+    Placeholder / neutered version.
+    Simply returns the text unchanged and an empty dict,
+    so existing calls in the app don't break.
     """
     if not isinstance(text, str) or not text.strip():
-        return text, {}
-
-    t = text
-    footnotes: dict[int, str] = {}
-
-    # Regex: matches " <num> <body...>" where body starts with lowercase or common intro
-    pat = re.compile(
-        r"(?<=\s)(\d{1,3})\s+(?=(on|in|at|this|these|such|deep|vouchers|according|see|europa|https?))",
-        re.IGNORECASE,
-    )
-
-    idx = 0
-    while True:
-        m = pat.search(t, idx)
-        if not m:
-            break
-        n = int(m.group(1))
-
-        # find end of footnote body: stop at next number marker, semicolon+capital, or bullet
-        start = m.start(1)
-        after = m.end(1)
-        next_num = re.search(r"(?<=\s)\d{1,3}\s+", t[after:])
-        cutoff = after + next_num.start() if next_num else len(t)
-
-        # extract body candidate
-        body = t[after:cutoff].strip()
-        if len(body.split()) < 4:
-            idx = after
-            continue
-
-        footnotes[n] = body
-        # replace in text with just [n]
-        t = t[:start] + f"[{n}] " + t[cutoff:]
-        idx = start + len(f"[{n}] ")
-
-    # tidy up spaces
-    t = re.sub(r"\s+", " ", t)
-    return t.strip(), footnotes
-
+        return "", {}
+    return text, {}
 
 
 def safe_date_series(s: pd.Series) -> pd.Series:
