@@ -74,7 +74,7 @@ def inject_brand_css():
         --sa-accent:    #00B4D8;
         --sa-ink:       #0F172A;
         --sa-muted:     #64748B;
-        --sa-bg:        #FFFFFF;
+        --sa-bg:        #F7F9FF;
         --sa-surface:   #F7F9FF;
         --sa-border:    #E5E7EB;
         --sa-font: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji','Segoe UI Emoji', sans-serif;
