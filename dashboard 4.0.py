@@ -173,26 +173,26 @@ def clean_footer(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 def normalize_bullets(text: str) -> str:
-    if not isinstance(text, str) or text == "":
+    if not isinstance(text, str) or text.strip() == "":
         return ""
     t = text.replace("\r\n", "\n").replace("\r", "\n")
 
-    # 1) unify common bullet glyphs + en/em dashes at line start
+    # 1) replace common bullet glyphs with a dash
     t = re.sub(r"(?m)^[ \t]*[▪◦●•]\s*", "- ", t)
-    t = re.sub(r"(?m)^[ \t]*[–—-]\s+", "- ", t)  # lines that begin with dash-like glyphs
 
-    # 2) collapse excessive inner spacing
+    # 2) also catch lines that start with dash-like glyphs (–, —, hyphen)
+    t = re.sub(r"(?m)^[ \t]*[–—-]\s+", "- ", t)
+
+    # 3) collapse excessive whitespace
     t = re.sub(r"[ \t]+", " ", t)
 
-    # 3) ensure bullets and numbered items begin on a new line
-    t = re.sub(r"(?<!\n)([ \t]+[-*]\s+)", r"\n- ", t)         # bullets
-    t = re.sub(r"(?<!\n)([ \t]+)(\d+\.\s+)", r"\n\2", t)      # 1., 2., ...
+    # 4) force a newline before any bullet marker if it’s stuck to previous text
+    t = re.sub(r"(?<!\n)([ \t]+- )", r"\n- ", t)
 
-    # 4) ensure a blank line *before* a list block for nicer rendering
-    t = re.sub(r"(?m)([^\n])(\n- )", r"\1\n\2", t)
-    t = re.sub(r"(?m)([^\n])(\n\d+\.\s)", r"\1\n\2", t)
+    # 5) don’t try to generate numeric bullets at all
+    # (so we don’t clash with footnote numbers)
 
-    # 5) tidy multiple blank lines
+    # 6) tidy blank lines (max 2 in a row)
     t = re.sub(r"\n{3,}", "\n\n", t)
 
     return t.strip()
