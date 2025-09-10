@@ -88,6 +88,49 @@ def inject_brand_css():
       .main .block-container {{ max-width: 1200px; }}
       h1,h2,h3,.stMarkdown h1,.stMarkdown h2,.stMarkdown h3{{ letter-spacing:.2px; font-weight:700; }}
 
+    st.markdown("""
+    <style>
+      /* ---- FONT FAMILY + WEIGHTS FOR WIDGETS ---- */
+      /* Inputs (text, number, textarea) */
+      .stTextInput input,
+      .stNumberInput input,
+      .stTextArea textarea {
+        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 400;   /* Regular by default */
+      }
+    
+      /* Selects / Multiselects: label, control, chips, menu options */
+      [data-testid="stSelectbox"] *,
+      [data-testid="stMultiSelect"] *,
+      div[role="listbox"] * {
+        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 400;
+      }
+    
+      /* Sliders (labels & ticks) */
+      [data-testid="stSlider"] *,
+      .stSlider {
+        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 500;   /* a touch stronger for readability */
+      }
+    
+      /* Radios / Checkboxes (labels) */
+      [data-testid="stRadio"] label,
+      [data-testid="stCheckbox"] label {
+        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 500;
+      }
+    
+      /* Section/subsection titles in your filters form */
+      .stForm h1, .stForm h2, .stForm h3, .stForm .stMarkdown h2 {
+        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 700;  /* Heading weight */
+        letter-spacing: .2px;
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+             
       /* Buttons */
       .stButton button{{
         border-radius: var(--sa-radius);
