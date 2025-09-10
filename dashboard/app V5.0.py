@@ -15,6 +15,7 @@ from utils import (
 
     # cleaning & text utils
     normalize_bullets, clean_footer, strip_and_collect_footnotes,
+    nl_to_br, highlight_text,
 
     # charts
     build_singlebar_rows, gantt_singlebar_chart, prepare_dates_for_chart,
@@ -314,6 +315,9 @@ with tab_tbl:
 with tab_full:
     st.subheader("Full Data — Expand rows for details")
 
+    # get active keywords from filters for highlighting
+    kw_list = crit.get("kws", []
+                       
     def render_row(row, programme: str):
         c1, c2 = st.columns(2)
         with c1:
