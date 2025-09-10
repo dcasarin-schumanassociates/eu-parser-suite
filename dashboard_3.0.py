@@ -1,11 +1,12 @@
-# app_b3_4.py — Streamlit Funding Dashboard
-# Two separate Gantts (Horizon/Erasmus), two-tier filters, Full Data tab,
-# streamlined filter layout + safer caching copies.
+# app_b3_5.py — Streamlit Funding Dashboard (Schuman-branded)
+# Keeps app_b3_4 functionality; adds brand fonts/colors, hero header, and Altair theme.
 
 from __future__ import annotations
-import io, re, base64
+import io, re, base64, os
 from datetime import datetime
 from typing import List, Dict
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 import altair as alt
@@ -19,7 +20,137 @@ try:
 except Exception:
     DOCX_AVAILABLE = False
 
-# ---------------------- Column mapping (extend/tune if headers differ) ----------------------
+# ------------------------------------------------------------
+# Brand assets locations (put files here in your repo)
+ASSETS_DIR = Path("assets")
+FONTS_DIR  = ASSETS_DIR / "fonts"
+LOGO_BLUE  = ASSETS_DIR / "logo-schuman_blue.png"           # primary
+LOGO_GREY  = ASSETS_DIR / "logo-schuman_grey.png"           # optional
+LOGO_WHITE = ASSETS_DIR / "logo-schuman_white.png"          # optional
+LOGO_SMALL = ASSETS_DIR / "logo-schuman-blue-white-bg-SMALL.png"  # for page icon (optional)
+# Font files you uploaded (place them in /assets/fonts/)
+FONT_FILES = [
+    ("SA Brand", "normal", 300, ASSETS_DIR / "Frm-Light.otf"),
+    ("SA Brand", "normal", 400, ASSETS_DIR / "Frm-Regular.otf"),
+    ("SA Brand", "normal", 500, ASSETS_DIR / "Frm-Medium.otf"),
+    ("SA Brand", "normal", 700, ASSETS_DIR / "Frm-Bold.otf"),
+    ("SA Brand", "italic", 700, ASSETS_DIR / "Frm-Bold-Italic.otf"),
+    ("SA Brand", "normal", 900, ASSETS_DIR / "Frm-Black.otf"),
+]
+
+def _file_to_base64(p: Path) -> str | None:
+    try:
+        return base64.b64encode(p.read_bytes()).decode("utf-8")
+    except Exception:
+        return None
+
+def inject_brand_css():
+    """Inject global CSS with brand palette, fonts, rounded corners, shadows."""
+    # Build @font-face blocks for any available OTFs
+    font_faces = []
+    for fam, style, weight, path in FONT_FILES:
+        if path.exists():
+            b64 = _file_to_base64(path)
+            if b64:
+                font_faces.append(f"""
+                @font-face {{
+                  font-family: '{fam}';
+                  src: url(data:font/otf;base64,{b64}) format('opentype');
+                  font-style: {style};
+                  font-weight: {weight};
+                  font-display: swap;
+                }}
+                """)
+    font_css = "\n".join(font_faces)
+
+    # Global brand CSS
+    st.markdown(f"""
+    <style>
+      {font_css}
+      :root {{
+        /* Palette — tune if you have exact brand hexes */
+        --sa-primary:   #1E4F86;   /* Schuman deep blue (close to logo) */
+        --sa-primary-600:#17406B;
+        --sa-primary-700:#123454;
+        --sa-accent:    #00B4D8;   /* supportive accent */
+        --sa-ink:       #0F172A;   /* main text */
+        --sa-muted:     #64748B;   /* secondary text */
+        --sa-bg:        #FFFFFF;
+        --sa-surface:   #F7F9FF;
+        --sa-border:    #E5E7EB;
+
+        --sa-font: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji','Segoe UI Emoji', sans-serif;
+        --sa-radius: 12px;
+        --sa-shadow: 0 6px 24px rgba(23,32,84,0.08);
+      }}
+      html, body, .stApp {{ font-family: var(--sa-font) !important; color: var(--sa-ink); background: var(--sa-bg); }}
+
+      .main .block-container {{ max-width: 1200px; }}
+      h1,h2,h3,.stMarkdown h1,.stMarkdown h2,.stMarkdown h3{{ letter-spacing:.2px; font-weight:700; }}
+
+      /* Buttons */
+      .stButton button{{
+        border-radius: var(--sa-radius);
+        border: 1px solid var(--sa-primary-600);
+        background: var(--sa-primary);
+        color: #fff; font-weight: 600;
+        box-shadow: var(--sa-shadow);
+      }}
+      .stButton button:hover{{ background: var(--sa-primary-600); border-color: var(--sa-primary-700); }}
+
+      /* Tabs */
+      [role="tablist"] {{ gap: 6px; }}
+      [role="tab"]{{
+        border: 1px solid var(--sa-border);
+        background: var(--sa-surface);
+        border-radius: var(--sa-radius);
+        padding: .4rem .8rem;
+        font-weight: 600;
+      }}
+      [role="tab"][aria-selected="true"]{{
+        border-color: var(--sa-primary-600);
+        box-shadow: var(--sa-shadow);
+        background: #fff;
+      }}
+
+      /* Cards / Scroll containers */
+      .scroll-container{{
+        overflow:auto; max-height: 900px; padding:16px; border:1px solid var(--sa-border);
+        border-radius: var(--sa-radius); background: #fff; box-shadow: var(--sa-shadow);
+      }}
+
+      /* Inputs - roundness */
+      .stMultiSelect, .stSelectbox, .stTextInput, .stSlider {{ border-radius: var(--sa-radius) !important; }}
+      .stDataFrame, .stTable {{ font-size: .94rem; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+def brand_header():
+    """Top hero header with gradient and logo."""
+    logo_src = None
+    if LOGO_BLUE.exists():
+        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_BLUE)}"
+    elif LOGO_GREY.exists():
+        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_GREY)}"
+    elif LOGO_WHITE.exists():
+        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_WHITE)}"
+
+    st.markdown(f"""
+    <div style="
+      border-radius: 16px;
+      background: linear-gradient(90deg, var(--sa-primary) 0%, var(--sa-primary-600) 65%, var(--sa-accent) 100%);
+      padding: 18px 20px; color: white; display:flex; align-items:center; gap:16px;
+      box-shadow: var(--sa-shadow);">
+      {'<img src="'+logo_src+'" alt="Schuman Associates" style="height:44px; filter:brightness(1.05) contrast(1.05);" />' if logo_src else ''}
+      <div style="flex:1;">
+        <div style="font-size:18px; opacity:.95; font-weight:700;">Schuman Associates · Funding Dashboard</div>
+        <div style="font-size:13px; opacity:.9;">Your European partners in a global market since 1989</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ------------------------------------------------------------
+# Column mapping / helpers / canonicalisation (unchanged logic)
 COLUMN_MAP = {
     "Programme": "programme",
     "Code": "code",
@@ -53,7 +184,6 @@ COLUMN_MAP = {
     "Managing Authority": "managing_authority",
     "Key Action": "key_action",
 }
-
 DISPLAY_COLS = [
     "programme","code","title","opening_date","deadline",
     "type_of_action","budget_per_project_eur",
@@ -62,13 +192,11 @@ DISPLAY_COLS = [
     "first_deadline","second_deadline","two_stage",
     "call_name","version_label","source_filename","parsed_on_utc",
 ]
-
 SEARCHABLE_COLUMNS = (
     "code","title","call_name","expected_outcome","scope","full_text",
     "cluster","destination","type_of_action","trl","managing_authority","key_action"
 )
 
-# --------------------------------- Text helpers ---------------------------------
 def nl_to_br(s: str) -> str:
     return "" if not s else s.replace("\n", "<br>")
 
@@ -103,7 +231,6 @@ def highlight_text(text: str, keywords: list[str], colours=None) -> str:
         out = re.sub(re.escape(kw), lambda m: f"<span style='background-color:{colour}; font-weight:bold;'>{m.group(0)}</span>", out, flags=re.IGNORECASE)
     return out
 
-# --------------------------------- Canonicalisation ---------------------------------
 def safe_date_series(s: pd.Series) -> pd.Series:
     out = pd.to_datetime(s, errors="coerce", dayfirst=True)
     if out.notna().sum() == 0:
@@ -136,13 +263,11 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     else:
         df["two_stage"] = False
 
-    # Search fields
     present = [c for c in SEARCHABLE_COLUMNS if c in df.columns]
     df["_search_all"]   = df[present].astype(str).agg(" ".join, axis=1).str.lower() if present else ""
     title_cols = [c for c in ["code","title"] if c in df.columns]
     df["_search_title"] = df[title_cols].astype(str).agg(" ".join, axis=1).str.lower() if title_cols else ""
 
-    # Convenience "any closing" & Year fields
     close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in df.columns]
     if close_cols:
         df["closing_date_any"] = pd.to_datetime(df[close_cols].stack(), errors="coerce").groupby(level=0).min()
@@ -153,7 +278,7 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
 
     return df
 
-# --------------------------------- File I/O (cached) ---------------------------------
+# --------- Caching ----------
 @st.cache_data(show_spinner=False)
 def get_sheet_names(file_bytes: bytes) -> List[str]:
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
@@ -161,14 +286,13 @@ def get_sheet_names(file_bytes: bytes) -> List[str]:
 
 @st.cache_data(show_spinner=False)
 def load_programme(file_bytes: bytes, sheet_name: str, programme_name: str, _ver:int=1) -> pd.DataFrame:
-    """_ver is a manual salt: bump when canonicalise() schema changes."""
-    _ = hash(file_bytes)  # included in cache key via args; content change invalidates cache
+    _ = hash(file_bytes)  # cache key includes content
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     raw = pd.read_excel(xls, sheet_name=sheet_name)
     df = canonicalise(raw, programme_name)
-    return df.copy(deep=True)  # defensive: avoid mutation-through-cache
+    return df.copy(deep=True)
 
-# --------------------------------- Chart prep ---------------------------------
+# --------- Chart prep ----------
 def wrap_label(text: str, width=60, max_lines=3) -> str:
     s = str(text or "")
     chunks = [s[i:i+width] for i in range(0, len(s), width)]
@@ -182,8 +306,6 @@ def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
 
 def build_singlebar_rows(df: pd.DataFrame) -> pd.DataFrame:
     g = df.copy()
-
-    # y label robust & unique
     if "code" in g.columns and g["code"].notna().any():
         base = g["code"].fillna("").astype(str)
     elif "title" in g.columns and g["title"].notna().any():
@@ -195,14 +317,31 @@ def build_singlebar_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     g["y_label"] = base.map(lambda s: wrap_label(s, width=100, max_lines=5))
     g["title_inbar"] = g.get("title","").astype(str).map(lambda s: wrap_label(s, width=100, max_lines=3))
-
-    # keep only valid bars
     g = g[pd.notna(g["opening_date"]) & pd.notna(g["deadline"]) & (g["opening_date"] <= g["deadline"])].copy()
     if g.empty:
         return g
     g["bar_days"] = (g["deadline"] - g["opening_date"]).dt.days
     g["mid"] = g["opening_date"] + (g["deadline"] - g["opening_date"])/2
     return g.sort_values(["deadline","opening_date"])
+
+def sa_altair_theme():
+    # Align charts with UI fonts & colors
+    return {
+        "config": {
+            "font": "SA Brand",
+            "axis":   {"labelFont": "SA Brand", "titleFont": "SA Brand", "labelColor":"#0F172A"},
+            "legend": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
+            "header": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
+            "title":  {"font": "SA Brand", "fontSize": 16, "fontWeight": 700, "color":"#0F172A"},
+            "range": {
+                "category": ["#1E4F86","#66C2A5","#FC8D62","#8DA0CB","#E78AC3","#A6D854","#FFD92F","#E5C494","#B3B3B3"]
+            },
+            "view": {"stroke": "transparent"}
+        }
+    }
+
+alt.themes.register("sa_theme", sa_altair_theme)
+alt.themes.enable("sa_theme")
 
 def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", title: str = ""):
     if g is None or g.empty:
@@ -215,11 +354,11 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
         x="start:T", x2="end:T",
         opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.05]), legend=None),
-        color=alt.value("#00008B")
+        color=alt.value("#1E4F86")
     )
     months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
                            pd.Timestamp(max_x).to_period("M").end_time, freq="MS")
-    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#4169E1", strokeWidth=0.3).encode(x="t:T")
+    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#1E4F86", strokeWidth=0.3).encode(x="t:T")
     month_labels_df = pd.DataFrame({
         "month": months[:-1], "next_month": months[1:],
         "label": [m.strftime("%b %Y") for m in months[:-1]]
@@ -229,14 +368,13 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
         align="center", baseline="top", dy=0, fontSize=12, fontWeight="bold"
     ).encode(x="mid:T", text="label:N", y=alt.value(0))
 
-    # Today line (Europe/Brussels)
     today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
     today_df = pd.DataFrame({"t":[today_ts]})
-    today_rule = alt.Chart(today_df).mark_rule(color="#4169E1", strokeDash=[2,1], strokeWidth=2).encode(
+    today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
         x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
     )
     today_label = alt.Chart(today_df).mark_text(
-        align="left", baseline="top", dx=4, dy=18, fontSize=11, fontWeight="bold", color="#4169E1"
+        align="left", baseline="top", dx=4, dy=18, fontSize=11, fontWeight="bold", color="#1E4F86"
     ).encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: "%d %b %Y"'))
 
     y_order = g["y_label"].drop_duplicates().tolist()
@@ -286,7 +424,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 
     return chart if not title else chart.properties(title=title)
 
-# --------------------------------- Report (DOCX) ---------------------------------
+# --------- Report (DOCX) ----------
 def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], title="Funding Report") -> bytes:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx not installed")
@@ -325,43 +463,12 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
 
     bio = io.BytesIO(); doc.save(bio); bio.seek(0); return bio.getvalue()
 
-# --------------------------------- UI ---------------------------------
-st.set_page_config(page_title="Funding Dashboard", layout="wide")
-
-# Global CSS
-st.markdown(
-    """
-    <style>
-    .scroll-container {
-        overflow-x: auto;
-        overflow-y: auto;
-        max-height: 900px;
-        padding: 16px;
-        border: 1px solid #eee;
-        border-radius: 8px;
-    }
-    .main .block-container { padding-left: 1.5rem; padding-right: 1.5rem; max-width: 95vw; }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# Logo (optional)
-try:
-    with open("logo.png", "rb") as f:
-        data_b64 = base64.b64encode(f.read()).decode("utf-8")
-    st.markdown(
-        f"""
-        <div style="text-align: center;">
-            <img src="data:image/png;base64,{data_b64}" width="250">
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-except Exception:
-    pass
-
-st.title("Funding Dashboard v3.4")
+# ------------------------------------------------------------
+# UI — page config + branding
+page_icon = str(LOGO_SMALL) if LOGO_SMALL.exists() else "🟦"
+st.set_page_config(page_title="Schuman · Funding Dashboard", page_icon=page_icon, layout="wide")
+inject_brand_css()
+brand_header()
 
 st.info(
     "📂 Please upload the latest parsed Excel file.\n\n"
@@ -382,7 +489,7 @@ with c1:
 with c2:
     er_sheet = st.selectbox("Erasmus Database", options=sheets, index=min(1, len(sheets)-1))
 
-# Load each programme independently (defensive copies from cache)
+# Load each programme independently
 df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe", _ver=1)
 df_e = load_programme(upl.getvalue(), er_sheet, "Erasmus+",      _ver=1)
 
@@ -413,7 +520,7 @@ step = max(1e4, round(rng / 50, -3)) if rng else 10000.0
 with st.form("filters", clear_on_submit=False):
     st.header("Filters")
 
-    # --- Common filters (row 1): opening, deadline, open calls ---
+    # Row 1: opening, deadline, open calls
     col_oy, col_dy, col_open = st.columns([1,1,1])
     with col_oy:
         open_year_sel = st.multiselect("Opening year(s)", opening_years, default=opening_years)
@@ -426,12 +533,12 @@ with st.form("filters", clear_on_submit=False):
             help="Keep only entries whose final Deadline is strictly after today (Europe/Brussels)."
         )
 
-    # --- Common filters (row 2): budgets ---
+    # Row 2: budget
     col_bud, _sp = st.columns([2,1])
     with col_bud:
         budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
 
-    # --- Common filters (row 3): keywords + combine + title/code toggle ---
+    # Row 3: keywords + combine + title/code toggle
     k1, k2, k3, kcomb, ktit = st.columns([2,2,2,1,1.2])
     with k1: kw1 = st.text_input("Keyword 1")
     with k2: kw2 = st.text_input("Keyword 2")
@@ -441,19 +548,17 @@ with st.form("filters", clear_on_submit=False):
     with ktit:
         title_code_only = st.checkbox("Title/Code only", value=False)          # default off
 
-    # --- Common filters (row 4): type of action ---
-    col_toa = st.columns(1)[0]
-    with col_toa:
-        types_sel = st.multiselect("Type of Action", type_opts)
+    # Row 4: type of action
+    types_sel = st.multiselect("Type of Action", type_opts)
 
-    # --- Horizon-specific ---
+    # Horizon-specific
     st.subheader("Horizon-specific")
     h1,h2,h3 = st.columns(3)
     with h1: clusters_sel = st.multiselect("Cluster", cluster_opts)
     with h2: dests_sel    = st.multiselect("Destination", dest_opts)
     with h3: trls_sel     = st.multiselect("TRL", trl_opts)
 
-    # --- Erasmus-specific ---
+    # Erasmus-specific
     st.subheader("Erasmus+-specific")
     e1,e2 = st.columns(2)
     with e1: ma_sel = st.multiselect("Managing Authority", ma_opts)
@@ -462,10 +567,10 @@ with st.form("filters", clear_on_submit=False):
     applied = st.form_submit_button("Apply filters")
 
 # Persist criteria
-if "crit34" not in st.session_state:
-    st.session_state.crit34 = {}
-if applied or not st.session_state.crit34:
-    st.session_state.crit34 = dict(
+if "crit35" not in st.session_state:
+    st.session_state.crit35 = {}
+if applied or not st.session_state.crit35:
+    st.session_state.crit35 = dict(
         open_years=open_year_sel, deadline_years=deadline_year_sel,
         types=types_sel, kws=[kw1,kw2,kw3], kw_mode=kw_mode, title_code_only=title_code_only,
         budget_range=budget_range,
@@ -473,9 +578,9 @@ if applied or not st.session_state.crit34:
         managing_authority=ma_sel, key_action=ka_sel,
         open_calls_only=open_calls_only
     )
-crit = st.session_state.crit34
+crit = st.session_state.crit35
 
-# Filtering helpers
+# Filtering helpers (unchanged)
 def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
     terms = [t.strip().lower() for t in terms if t and str(t).strip()]
     if not terms:
@@ -485,7 +590,7 @@ def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_co
         pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
     else:
         pattern = "(" + "|".join(re.escape(t) for t in terms) + ")"
-    return df[hay.str.contains(pattern, regex=True, na=False)]
+    return df[hay.str_contains(pattern, regex=True, na=False)] if hasattr(pd.Series, "str_contains") else df[hay.str.contains(pattern, regex=True, na=False)]
 
 def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
     df = df0.copy()
@@ -533,7 +638,7 @@ with tab_hz:
         value=False,
         help="When enabled, the Horizon chart is split into one dropdown per Cluster."
     )
-
+    from copy import deepcopy
     if not group_by_cluster:
         g_h = build_singlebar_rows(fh)
         if g_h.empty:
@@ -679,8 +784,8 @@ with tab_full:
 
 with tab_short:
     st.subheader("Shortlist & Notes (DOCX)")
-    if "sel34" not in st.session_state: st.session_state.sel34 = set()
-    if "notes34" not in st.session_state: st.session_state.notes34 = {}
+    if "sel35" not in st.session_state: st.session_state.sel35 = set()
+    if "notes35" not in st.session_state: st.session_state.notes35 = {}
 
     combined = []
     if len(fh): combined.append(fh.assign(programme="Horizon Europe"))
@@ -688,7 +793,6 @@ with tab_short:
     ff = pd.concat(combined, ignore_index=True) if combined else pd.DataFrame()
 
     st.markdown("**Select calls**")
-    # ensure columns exist & sort robustly
     if "closing_date_any" not in ff.columns:
         close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in ff.columns]
         if close_cols:
@@ -702,27 +806,27 @@ with tab_short:
     for idx, r in ff.iterrows():
         code = str(r.get("code") or ""); title = str(r.get("title") or "")
         label = f"{code} — {title}".strip(" —")
-        checked = code in st.session_state.sel34
-        new = st.checkbox(label or "(untitled)", value=checked, key=f"sel34_{code}_{idx}")
-        if new and not checked: st.session_state.sel34.add(code)
-        elif (not new) and checked: st.session_state.sel34.discard(code)
+        checked = code in st.session_state.sel35
+        new = st.checkbox(label or "(untitled)", value=checked, key=f"sel35_{code}_{idx}")
+        if new and not checked: st.session_state.sel35.add(code)
+        elif (not new) and checked: st.session_state.sel35.discard(code)
 
-    selected_df = ff[ff["code"].astype(str).isin(st.session_state.sel34)]
+    selected_df = ff[ff["code"].astype(str).isin(st.session_state.sel35)]
     if not selected_df.empty:
         st.markdown("---")
         for _, r in selected_df.iterrows():
             code = str(r.get("code") or "")
-            default = st.session_state.notes34.get(code, "")
-            st.session_state.notes34[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note34_{code}")
+            default = st.session_state.notes35.get(code, "")
+            st.session_state.notes35[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note35_{code}")
 
         colA, colB = st.columns(2)
-        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b3.4)")
+        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b3.5)")
         with colB: pass
 
         if st.button("📄 Generate DOCX"):
             try:
                 if DOCX_AVAILABLE:
-                    data = generate_docx_report(selected_df, st.session_state.notes34, title=title)
+                    data = generate_docx_report(selected_df, st.session_state.notes35, title=title)
                     st.download_button("⬇️ Download .docx", data=data,
                                        file_name="funding_report.docx",
                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
