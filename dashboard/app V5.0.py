@@ -346,17 +346,20 @@ with tab_full:
             ]
         st.markdown(" | ".join(meta_bits))
     
-        # UNIQUE widget keys per field
-        code = str(row.get("code") or "")
-    
         if row.get("expected_outcome"):
-            editable_text("🎯 Expected Outcome", "expected_outcome", str(row.get("expected_outcome") or ""), code, kw_list, height=180)
+            with st.expander("🎯 Expected Outcome"):
+                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("expected_outcome")))))
+                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
     
         if row.get("scope"):
-            editable_text("🧭 Scope", "scope", str(row.get("scope") or ""), code, kw_list, height=180)
+            with st.expander("🧭 Scope"):
+                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("scope")))))
+                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
     
         if row.get("full_text"):
-            editable_text("📖 Full Description", "full_text", str(row.get("full_text") or ""), code, kw_list, height=220)
+            with st.expander("📖 Full Description"):
+                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("full_text")))))
+                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
     
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
