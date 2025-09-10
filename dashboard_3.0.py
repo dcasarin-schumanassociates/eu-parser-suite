@@ -449,8 +449,19 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
         .encode(x="opening_date:T", text=alt.Text("opening_date:T", format="%d %b %Y"))
     end_labels   = base.mark_text(align="left",  dx=4, dy=5, fontSize=10, color="#111")\
         .encode(x="deadline:T",      text=alt.Text("deadline:T",      format="%d %b %Y"))
-    inbar = base.mark_text(align="left", baseline="bottom", dx=2, dy=-(int(bar_size/2)+4), color="black")\
-        .encode(x=alt.X("opening_date:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
+    
+    inbar = base.mark_text(align="left",
+                           baseline="bottom",
+                           dx=2, 
+                           dy=-(int(bar_size/2)+4),
+                           color="black",
+                           font="SA Brand",
+                           fontSize=12,
+                           fontWeight=700          # 400=Regular, 500=Medium, 600=Semibold, 700=Bold
+                          )\
+        .encode(x=alt.X("opening_date:T",
+                        scale=alt.Scale(domain=[domain_min, domain_max]),
+                        axis=None),
                 text="title_inbar:N",
                 opacity=alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0)))
 
