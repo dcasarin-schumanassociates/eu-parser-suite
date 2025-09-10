@@ -1,20 +1,19 @@
-# app_b3_3.py — Streamlit Funding Dashboard
-# Two separate Gantts (Horizon/Erasmus), two-tier filters, and a new "Full Data" tab.
+# app_b3_4.py — Streamlit Funding Dashboard
+# Two separate Gantts (Horizon/Erasmus), two-tier filters, Full Data tab,
+# streamlined filter layout + safer caching copies.
 
 from __future__ import annotations
-import io, re
+import io, re, base64
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 import pandas as pd
 import streamlit as st
 import altair as alt
-import base64  # needed for the logo block
-
 
 # Optional DOCX for shortlist export
 try:
     from docx import Document
-    from docx.shared import Pt, Cm
+    from docx.shared import Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     DOCX_AVAILABLE = True
 except Exception:
@@ -161,10 +160,13 @@ def get_sheet_names(file_bytes: bytes) -> List[str]:
     return xls.sheet_names
 
 @st.cache_data(show_spinner=False)
-def load_programme(file_bytes: bytes, sheet_name: str, programme_name: str) -> pd.DataFrame:
+def load_programme(file_bytes: bytes, sheet_name: str, programme_name: str, _ver:int=1) -> pd.DataFrame:
+    """_ver is a manual salt: bump when canonicalise() schema changes."""
+    _ = hash(file_bytes)  # included in cache key via args; content change invalidates cache
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     raw = pd.read_excel(xls, sheet_name=sheet_name)
-    return canonicalise(raw, programme_name)
+    df = canonicalise(raw, programme_name)
+    return df.copy(deep=True)  # defensive: avoid mutation-through-cache
 
 # --------------------------------- Chart prep ---------------------------------
 def wrap_label(text: str, width=60, max_lines=3) -> str:
@@ -324,7 +326,6 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
     bio = io.BytesIO(); doc.save(bio); bio.seek(0); return bio.getvalue()
 
 # --------------------------------- UI ---------------------------------
-
 st.set_page_config(page_title="Funding Dashboard", layout="wide")
 
 # Global CSS
@@ -360,7 +361,7 @@ try:
 except Exception:
     pass
 
-st.title("Funding Dashboard v3.0")
+st.title("Funding Dashboard v3.4")
 
 st.info(
     "📂 Please upload the latest parsed Excel file.\n\n"
@@ -381,9 +382,9 @@ with c1:
 with c2:
     er_sheet = st.selectbox("Erasmus Database", options=sheets, index=min(1, len(sheets)-1))
 
-# Load each programme independently
-df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe")
-df_e = load_programme(upl.getvalue(), er_sheet, "Erasmus+")
+# Load each programme independently (defensive copies from cache)
+df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe", _ver=1)
+df_e = load_programme(upl.getvalue(), er_sheet, "Erasmus+",      _ver=1)
 
 # ------- Build filter choices -------
 all_df = pd.concat([df_h.assign(programme="Horizon Europe"), df_e.assign(programme="Erasmus+")], ignore_index=True)
@@ -412,34 +413,38 @@ step = max(1e4, round(rng / 50, -3)) if rng else 10000.0
 with st.form("filters", clear_on_submit=False):
     st.header("Filters")
 
-    # --- Common ---
-    st.subheader("Common filters")
-    a,b,c = st.columns(3)
-    with a:
+    # --- Common filters (row 1): opening, deadline, open calls ---
+    col_oy, col_dy, col_open = st.columns([1,1,1])
+    with col_oy:
         open_year_sel = st.multiselect("Opening year(s)", opening_years, default=opening_years)
-    with b:
+    with col_dy:
         deadline_year_sel = st.multiselect("Deadline year(s)", deadline_years, default=deadline_years)
-    with c:
-        types_sel = st.multiselect("Type of Action", type_opts)
+    with col_open:
+        open_calls_only = st.checkbox(
+            "Open calls only",
+            value=False,
+            help="Keep only entries whose final Deadline is strictly after today (Europe/Brussels)."
+        )
 
-    d,e = st.columns(2)
-    with d:
+    # --- Common filters (row 2): budgets ---
+    col_bud, _sp = st.columns([2,1])
+    with col_bud:
         budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
-    with e:
-        kw_mode = st.radio("Keyword combine", ["AND","OR"], index=0, horizontal=True)
 
-    r1,r2,r3,r4 = st.columns([2,2,2,1])
-    with r1: kw1 = st.text_input("Keyword 1")
-    with r2: kw2 = st.text_input("Keyword 2")
-    with r3: kw3 = st.text_input("Keyword 3")
-    with r4: title_code_only = st.checkbox("Title/Code only", value=True)
+    # --- Common filters (row 3): keywords + combine + title/code toggle ---
+    k1, k2, k3, kcomb, ktit = st.columns([2,2,2,1,1.2])
+    with k1: kw1 = st.text_input("Keyword 1")
+    with k2: kw2 = st.text_input("Keyword 2")
+    with k3: kw3 = st.text_input("Keyword 3")
+    with kcomb:
+        kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)  # default OR
+    with ktit:
+        title_code_only = st.checkbox("Title/Code only", value=False)          # default off
 
-    # --- Open calls only ---
-    open_calls_only = st.checkbox(
-        "Open calls only (deadline later than today)",
-        value=False,
-        help="Keeps only entries whose final Deadline is strictly after today's date (Europe/Brussels)."
-    )
+    # --- Common filters (row 4): type of action ---
+    col_toa = st.columns(1)[0]
+    with col_toa:
+        types_sel = st.multiselect("Type of Action", type_opts)
 
     # --- Horizon-specific ---
     st.subheader("Horizon-specific")
@@ -457,19 +462,18 @@ with st.form("filters", clear_on_submit=False):
     applied = st.form_submit_button("Apply filters")
 
 # Persist criteria
-if "crit33" not in st.session_state:
-    st.session_state.crit33 = {}
-if applied or not st.session_state.crit33:
-    st.session_state.crit33 = dict(
+if "crit34" not in st.session_state:
+    st.session_state.crit34 = {}
+if applied or not st.session_state.crit34:
+    st.session_state.crit34 = dict(
         open_years=open_year_sel, deadline_years=deadline_year_sel,
         types=types_sel, kws=[kw1,kw2,kw3], kw_mode=kw_mode, title_code_only=title_code_only,
         budget_range=budget_range,
         clusters=clusters_sel, dests=dests_sel, trls=trls_sel,
         managing_authority=ma_sel, key_action=ka_sel,
         open_calls_only=open_calls_only
-       
     )
-crit = st.session_state.crit33
+crit = st.session_state.crit34
 
 # Filtering helpers
 def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
@@ -531,42 +535,30 @@ with tab_hz:
     )
 
     if not group_by_cluster:
-        # Regular single Horizon Gantt (as before)
         g_h = build_singlebar_rows(fh)
         if g_h.empty:
             st.info("No valid Horizon rows/dates.")
         else:
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.altair_chart(
-                gantt_singlebar_chart(g_h, color_field="type_of_action"),
-                use_container_width=True
-            )
+            st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
     else:
-        # Grouped mode: one dropdown per cluster, each with its own Gantt
         if "cluster" not in fh.columns:
             st.warning("Column 'cluster' not available in Horizon dataset.")
         else:
-            # Handle missing/blank clusters and sort by size (desc)
             tmp = fh.copy()
             tmp["cluster"] = tmp["cluster"].fillna("— Unspecified —").replace({"": "— Unspecified —"})
             groups = list(tmp.groupby("cluster", dropna=False))
             groups.sort(key=lambda kv: len(kv[1]), reverse=True)
-
             st.caption(f"Clusters found: {len(groups)}")
-
             for clu_name, gdf in groups:
-                # Build rows for this cluster only
                 g_clu = build_singlebar_rows(gdf)
                 with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
                     if g_clu.empty:
                         st.info("No valid rows/dates for this cluster after filters.")
                     else:
                         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-                        st.altair_chart(
-                            gantt_singlebar_chart(g_clu, color_field="type_of_action"),
-                            use_container_width=True
-                        )
+                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field="type_of_action"), use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_er:
@@ -595,11 +587,9 @@ with tab_tbl:
 with tab_full:
     st.subheader("Full Data — Expand rows for details")
 
-    # Reuse existing keyword list for highlighting (if present in your file)
-    kw_list = crit.get("kws", []) if "crit" in locals() or "crit" in globals() else []
+    kw_list = crit.get("kws", [])
 
     def render_row(row, programme: str):
-        # identical renderer as before
         c1, c2 = st.columns(2)
         with c1:
             if pd.notna(row.get("opening_date")):
@@ -631,7 +621,6 @@ with tab_full:
             ]
         st.markdown(" | ".join(meta_bits))
 
-        # Long text sections (highlight with current keywords)
         if row.get("expected_outcome"):
             with st.expander("🎯 Expected Outcome"):
                 clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("expected_outcome")))))
@@ -651,31 +640,25 @@ with tab_full:
             f"| Parsed on: {row.get('parsed_on_utc','-')}"
         )
 
-    # ---------------- Horizon Europe ----------------
     st.markdown(f"### Horizon Europe ({len(fh)})")
     group_hz = st.checkbox(
         "Group Horizon by Cluster (dropdowns)",
         value=False,
         help="Show one expander per Cluster; inside each, expand rows for details."
     )
-
     if len(fh) == 0:
         st.caption("— no Horizon rows after filters —")
     else:
         if not group_hz:
-            # Flat list of row expanders (original behaviour)
             for _, r in fh.iterrows():
                 label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
                 with st.expander(label or "(untitled)"):
                     render_row(r, "Horizon Europe")
         else:
-            # Group by cluster → one dropdown per cluster; then row expanders inside
             tmp = fh.copy()
             tmp["cluster"] = tmp.get("cluster").fillna("— Unspecified —").replace({"": "— Unspecified —"})
             groups = list(tmp.groupby("cluster", dropna=False))
-            # show bigger groups first
             groups.sort(key=lambda kv: len(kv[1]), reverse=True)
-
             st.caption(f"Clusters found: {len(groups)}")
             for clu_name, gdf in groups:
                 disp = str(clu_name)
@@ -685,12 +668,10 @@ with tab_full:
                         with st.expander(label or "(untitled)"):
                             render_row(r, "Horizon Europe")
 
-    # ---------------- Erasmus+ ----------------
     st.markdown(f"### Erasmus+ ({len(fe)})")
     if len(fe) == 0:
         st.caption("— no Erasmus rows after filters —")
     else:
-        # Keep Erasmus+ section unchanged (flat list of row expanders)
         for _, r in fe.iterrows():
             label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
             with st.expander(label or "(untitled)"):
@@ -698,8 +679,8 @@ with tab_full:
 
 with tab_short:
     st.subheader("Shortlist & Notes (DOCX)")
-    if "sel33" not in st.session_state: st.session_state.sel33 = set()
-    if "notes33" not in st.session_state: st.session_state.notes33 = {}
+    if "sel34" not in st.session_state: st.session_state.sel34 = set()
+    if "notes34" not in st.session_state: st.session_state.notes34 = {}
 
     combined = []
     if len(fh): combined.append(fh.assign(programme="Horizon Europe"))
@@ -707,30 +688,41 @@ with tab_short:
     ff = pd.concat(combined, ignore_index=True) if combined else pd.DataFrame()
 
     st.markdown("**Select calls**")
-    for idx, r in ff.sort_values(["closing_date_any","opening_date"]).iterrows():
+    # ensure columns exist & sort robustly
+    if "closing_date_any" not in ff.columns:
+        close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in ff.columns]
+        if close_cols:
+            ff["closing_date_any"] = pd.to_datetime(ff[close_cols].stack(), errors="coerce").groupby(level=0).min()
+        else:
+            ff["closing_date_any"] = pd.NaT
+    sort_keys = [c for c in ["closing_date_any","opening_date"] if c in ff.columns]
+    if sort_keys:
+        ff = ff.sort_values(sort_keys)
+
+    for idx, r in ff.iterrows():
         code = str(r.get("code") or ""); title = str(r.get("title") or "")
         label = f"{code} — {title}".strip(" —")
-        checked = code in st.session_state.sel33
-        new = st.checkbox(label or "(untitled)", value=checked, key=f"sel33_{code}_{idx}")
-        if new and not checked: st.session_state.sel33.add(code)
-        elif (not new) and checked: st.session_state.sel33.discard(code)
+        checked = code in st.session_state.sel34
+        new = st.checkbox(label or "(untitled)", value=checked, key=f"sel34_{code}_{idx}")
+        if new and not checked: st.session_state.sel34.add(code)
+        elif (not new) and checked: st.session_state.sel34.discard(code)
 
-    selected_df = ff[ff["code"].astype(str).isin(st.session_state.sel33)]
+    selected_df = ff[ff["code"].astype(str).isin(st.session_state.sel34)]
     if not selected_df.empty:
         st.markdown("---")
         for _, r in selected_df.iterrows():
             code = str(r.get("code") or "")
-            default = st.session_state.notes33.get(code, "")
-            st.session_state.notes33[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note33_{code}")
+            default = st.session_state.notes34.get(code, "")
+            st.session_state.notes34[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note34_{code}")
 
         colA, colB = st.columns(2)
-        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b3.3)")
+        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b3.4)")
         with colB: pass
 
         if st.button("📄 Generate DOCX"):
             try:
                 if DOCX_AVAILABLE:
-                    data = generate_docx_report(selected_df, st.session_state.notes33, title=title)
+                    data = generate_docx_report(selected_df, st.session_state.notes34, title=title)
                     st.download_button("⬇️ Download .docx", data=data,
                                        file_name="funding_report.docx",
                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
