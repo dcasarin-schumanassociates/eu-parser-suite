@@ -178,8 +178,6 @@ def normalize_bullets(text: str) -> str:
     """Normalise bullet glyphs to '- ' and tidy spacing."""
     if not isinstance(text, str) or text.strip() == "":
         return ""
-    t = text.replace("\r\n", "\n").replace("\r", "\n")
-
     # Replace known bullet characters with '- '
     bullet_chars = r"[▪◦●•∙⋅◉○◆◇▶►➤➔❖▪︎▫︎●︎■◆◇•]|\\*"
     t = re.sub(rf"(?m)^[ \t]*{bullet_chars}\s*", "- ", t)
