@@ -877,6 +877,54 @@ with tab_short:
     shortlisted_codes = set(st.session_state.sel35)
     selected_df = ff[ff["code"].astype(str).isin(shortlisted_codes)]
 
+        # --- Gantt for shortlisted items ---
+    st.markdown("### 📅 Gantt — Shortlisted Calls")
+
+    # Controls
+    col_g1, col_g2 = st.columns([1,1])
+    with col_g1:
+        color_by = st.selectbox(
+            "Colour bars by",
+            options=[opt for opt in ["type_of_action", "programme", "cluster"] if opt in selected_df.columns],
+            index=0,
+            help="Choose the field used to colour the bars."
+        )
+    with col_g2:
+        group_hz_clusters = st.checkbox(
+            "For Horizon: split into one chart per Cluster",
+            value=False,
+            help="If on, Horizon Europe items are shown as separate Gantts per Cluster. Erasmus+ stays combined."
+        )
+
+    # Build overall combined chart (all shortlisted)
+    g_all = build_singlebar_rows(selected_df)
+    if g_all.empty:
+        st.info("No valid dates to render a Gantt for the current shortlist.")
+    else:
+        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+        st.altair_chart(gantt_singlebar_chart(g_all, color_field=color_by), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Optional: one Gantt per Horizon cluster
+    if group_hz_clusters:
+        hz_only = selected_df[selected_df.get("programme").eq("Horizon Europe")]
+        if not hz_only.empty and "cluster" in hz_only.columns:
+            tmp = hz_only.copy()
+            tmp["cluster"] = tmp["cluster"].fillna("— Unspecified —").replace({"": "— Unspecified —"})
+            groups = list(tmp.groupby("cluster", dropna=False))
+            groups.sort(key=lambda kv: len(kv[1]), reverse=True)
+            st.caption(f"Horizon clusters in shortlist: {len(groups)}")
+            for clu_name, gdf in groups:
+                g_clu = build_singlebar_rows(gdf)
+                with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
+                    if g_clu.empty:
+                        st.info("No valid rows/dates for this cluster.")
+                    else:
+                        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field=color_by), use_container_width=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+
     if not selected_df.empty:
         st.markdown("---")
         for _, r in selected_df.iterrows():
