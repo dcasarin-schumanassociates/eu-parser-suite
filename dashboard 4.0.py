@@ -702,7 +702,7 @@ with tab_hz:
             st.info("No valid Horizon rows/dates.")
         else:
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), width="stretch")
+            st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), width='stretch')
             st.markdown('</div>', unsafe_allow_html=True)
     else:
         if "cluster" not in fh.columns:
@@ -720,7 +720,7 @@ with tab_hz:
                         st.info("No valid rows/dates for this cluster after filters.")
                     else:
                         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field="type_of_action"), width="stretch")
+                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field="type_of_action"), width='stretch')
                         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_er:
@@ -729,7 +729,7 @@ with tab_er:
     if g_e.empty: st.info("No valid Erasmus rows/dates.")
     else:
         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-        st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), width="stretch")
+        st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), width='stretch')
         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_tbl:
@@ -739,11 +739,11 @@ with tab_tbl:
     colA, colB = st.columns(2)
     with colA:
         st.markdown(f"### Horizon Europe ({len(fh)})")
-        if len(fh): st.dataframe(fh[show_cols_h], width="stretch", hide_index=True)
+        if len(fh): st.dataframe(fh[show_cols_h], width='stretch', hide_index=True)
         else: st.caption("— no rows —")
     with colB:
         st.markdown(f"### Erasmus+ ({len(fe)})")
-        if len(fe): st.dataframe(fe[show_cols_e], width="stretch", hide_index=True)
+        if len(fe): st.dataframe(fe[show_cols_e], width='stretch', hide_index=True)
         else: st.caption("— no rows —")
 
 # ★ NEW — helper to render shortlist checkbox + row expander as a single “row”
