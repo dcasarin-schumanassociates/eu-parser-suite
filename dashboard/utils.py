@@ -179,12 +179,10 @@ def normalize_bullets(text: str) -> str:
     if not isinstance(text, str) or text.strip() == "":
         return ""
     t = text.replace("\r\n", "\n").replace("\r", "\n")
-    # includes weird glyphs and asterisk; also ''
-    bullet_chars = r"[▪◦●•�□■∙⋅◉○◆◇▶►➤➔❖▪︎▫︎●︎■◆◇•]|\\*"
+    bullet_chars = r"[▪◦●•∙⋅◉○◆◇▶►➤➔❖▪︎▫︎●︎■◆◇•]|\\*"
     t = re.sub(rf"(?m)^[ \t]*{bullet_chars}\s*", "- ", t)
     t = re.sub(r"(?m)^[ \t]*[–—-]\s+", "- ", t)   # dash-like
     t = re.sub(r"[ \t]+", " ", t)
-    t = re.sub(r"(?<!\n)([ \t]+- )", r"\n- ", t)
     t = re.sub(r"\n{3,}", "\n\n", t)
     return t.strip()
 
