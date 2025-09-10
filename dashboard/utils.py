@@ -187,15 +187,6 @@ def normalize_bullets(text: str) -> str:
     # Dash-like glyphs at the start of a line
     t = re.sub(r"(?m)^[ \t]*[–—-]\s+", "- ", t)
 
-    # Collapse excessive whitespace
-    t = re.sub(r"[ \t]+", " ", t)
-
-    # Ensure each bullet starts on a new line, but do NOT break hyphenated words
-    t = re.sub(r"(?m)(?<!^)\s+- ", r"\n- ", t)
-
-    # Tidy blank lines (max 2 in a row)
-    t = re.sub(r"\n{3,}", "\n\n", t)
-
     return t.strip()
 
 def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
