@@ -305,7 +305,7 @@ with tab_full:
                 st.markdown(f"📦 **Total:** {row['total_budget_eur']:,.0f} EUR")
             if pd.notna(row.get("num_projects")):
                 st.markdown(f"📊 **# Projects:** {int(row['num_projects'])}")
-
+    
         meta_bits = [
             f"🏷️ **Programme:** {programme}",
             f"**Type of Action:** {row.get('type_of_action','-')}",
@@ -322,28 +322,25 @@ with tab_full:
                 f"**Key Action:** {row.get('key_action','-')}",
             ]
         st.markdown(" | ".join(meta_bits))
-
-        # --- Editable sections ---
+    
+        # UNIQUE widget keys per field
         code = str(row.get("code") or "")
-        for field, label in [
-            ("expected_outcome", "🎯 Expected Outcome"),
-            ("scope",            "🧭 Scope"),
-            ("full_text",        "📖 Full Description"),
-        ]:
-            if row.get(field):
-                with st.expander(label):
-                    raw = str(row.get(field) or "")
-                    clean_text, _ = strip_and_collect_footnotes(clean_footer(raw))  # no-op, but keeps wiring
-                    clean_text = normalize_bullets(clean_text)
-                    key = f"edit_{field}_{code}"
-                    edited = st.text_area(f"Edit {label.split(' ',1)[1]}", value=clean_text, height=180, key=key)
-                    st.session_state[key] = edited  # persist
-
+    
+        if row.get("expected_outcome"):
+            editable_text("🎯 Expected Outcome", "expected_outcome", str(row.get("expected_outcome") or ""), code, kw_list, height=180)
+    
+        if row.get("scope"):
+            editable_text("🧭 Scope", "scope", str(row.get("scope") or ""), code, kw_list, height=180)
+    
+        if row.get("full_text"):
+            editable_text("📖 Full Description", "full_text", str(row.get("full_text") or ""), code, kw_list, height=220)
+    
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
             f"| Version: {row.get('version_label','-')} "
             f"| Parsed on: {row.get('parsed_on_utc','-')}"
         )
+
 
     # ----- HORIZON -----
     st.markdown(f"### Horizon Europe ({len(fh)})")
@@ -474,15 +471,20 @@ with tab_short:
 
         if st.button("📄 Generate DOCX"):
             try:
-                data = generate_docx_report(
-                    selected_df,
-                    st.session_state.notes35,
-                    title=title,
-                    shortlist_gantt_png=gantt_png
-                )
-                st.download_button("⬇️ Download .docx", data=data,
-                                   file_name="funding_report.docx",
-                                   mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                if DOCX_AVAILABLE:
+                    export_df = selected_df.copy()
+                    merge_edits_into_df(export_df, st.session_state)  # <-- apply text edits
+                    data = generate_docx_report(
+                        export_df,
+                        st.session_state.notes35,
+                        title=title,
+                        shortlist_gantt_png=st.session_state.shortlist_chart_png
+                    )
+                    st.download_button("⬇️ Download .docx", data=data,
+                                       file_name="funding_report.docx",
+                                       mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                else:
+                    st.error("python-docx not installed in this environment.")
             except Exception as e:
                 st.error(f"Failed to generate report: {e}")
     else:
