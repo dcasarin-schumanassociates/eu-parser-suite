@@ -128,12 +128,12 @@ def inject_brand_css():
 def brand_header():
     """Top hero header with gradient and logo."""
     logo_src = None
-    if LOGO_BLUE.exists():
-        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_BLUE)}"
+    if LOGO_WHITE.exists():
+        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_WHITE)}"
     elif LOGO_GREY.exists():
         logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_GREY)}"
-    elif LOGO_WHITE.exists():
-        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_WHITE)}"
+    elif LOGO_BLUE.exists():
+        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_BLUE)}"
 
     st.markdown(f"""
     <div style="
