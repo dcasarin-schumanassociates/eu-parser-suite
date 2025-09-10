@@ -119,6 +119,44 @@ def brand_header():
     """, unsafe_allow_html=True)
 
 # ---------- Text utils ----------
+
+def nl_to_br(s: str) -> str:
+    """
+    Replace newline characters with <br> for safe HTML rendering.
+    """
+    return "" if not s else s.replace("\n", "<br>")
+
+
+def highlight_text(text: str, keywords: list[str], colours=None) -> str:
+    """
+    Wrap keywords in <span> with background colour + bold.
+    - text: input string
+    - keywords: list of terms to highlight (case-insensitive)
+    - colours: list of colours to cycle through
+    """
+    import re
+
+    if not text:
+        return ""
+
+    kws = [str(k).strip() for k in keywords if k and str(k).strip()]
+    if not kws:
+        return text
+
+    if colours is None:
+        colours = ["#ffff00", "#a0e7e5", "#ffb3b3"]
+
+    out = str(text)
+    for i, kw in enumerate(kws):
+        colour = colours[i % len(colours)]
+        out = re.sub(
+            re.escape(kw),
+            lambda m: f"<span style='background-color:{colour}; font-weight:bold;'>{m.group(0)}</span>",
+            out,
+            flags=re.IGNORECASE,
+        )
+    return out
+
 def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
     """In-place: apply text edits from session_state to df, if present."""
     for i, row in df.iterrows():
