@@ -908,42 +908,38 @@ with tab_full:
         if row.get("expected_outcome"):
             with st.expander("🎯 Expected Outcome"):
                 raw = str(row.get("expected_outcome") or "")
-                t1 = clean_footer(raw)
-                t2, foots = strip_and_collect_footnotes(t1)
-                t3 = normalize_bullets(t2)
-                html = nl_to_br(t3)
-                st.markdown(highlight_text(html, kw_list), unsafe_allow_html=True)
-                if foots:
-                    with st.expander("📎 Footnotes", expanded=False):
-                        for n, body in foots.items():
-                            st.markdown(f"**[{n}]** {body}")
+                # Clean up before showing in editor
+                clean_text, _ = strip_and_collect_footnotes(clean_footer(raw))
+                clean_text = normalize_bullets(clean_text)
+        
+                key = f"edit_expected_{row.get('code','')}"
+                edited = st.text_area("Edit Expected Outcome", value=clean_text, height=180, key=key)
+                # Persist
+                st.session_state[key] = edited
 
         if row.get("scope"):
             with st.expander("🧭 Scope"):
                 raw = str(row.get("scope") or "")
-                t1 = clean_footer(raw)
-                t2, foots = strip_and_collect_footnotes(t1)
-                t3 = normalize_bullets(t2)
-                html = nl_to_br(t3)
-                st.markdown(highlight_text(html, kw_list), unsafe_allow_html=True)
-                if foots:
-                    with st.expander("📎 Footnotes", expanded=False):
-                        for n, body in foots.items():
-                            st.markdown(f"**[{n}]** {body}")
-        
+                # Clean up before showing in editor
+                clean_text, _ = strip_and_collect_footnotes(clean_footer(raw))
+                clean_text = normalize_bullets(clean_text)        
+                key = f"edit_expected_{row.get('code','')}"
+                edited = st.text_area("Edit Scope", value=clean_text, height=180, key=key)
+                # Persist
+                st.session_state[key] = edited
+
         if row.get("full_text"):
             with st.expander("📖 Full Description"):
                 raw = str(row.get("full_text") or "")
-                t1 = clean_footer(raw)
-                t2, foots = strip_and_collect_footnotes(t1)
-                t3 = normalize_bullets(t2)
-                html = nl_to_br(t3)
-                st.markdown(highlight_text(html, kw_list), unsafe_allow_html=True)
-                if foots:
-                    with st.expander("📎 Footnotes", expanded=False):
-                        for n, body in foots.items():
-                            st.markdown(f"**[{n}]** {body}")
-
+                # Clean up before showing in editor
+                clean_text, _ = strip_and_collect_footnotes(clean_footer(raw))
+                clean_text = normalize_bullets(clean_text)        
+                key = f"edit_expected_{row.get('code','')}"
+                edited = st.text_area("Edit Full Text", value=clean_text, height=180, key=key)
+                # Persist
+                st.session_state[key] = edited        
+        
+             
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
             f"| Version: {row.get('version_label','-')} "
