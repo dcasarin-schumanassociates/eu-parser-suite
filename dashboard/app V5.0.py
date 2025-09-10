@@ -316,7 +316,7 @@ with tab_full:
     st.subheader("Full Data — Expand rows for details")
 
     # get active keywords from filters for highlighting
-    kw_list = crit.get("kws", []
+    kw_list = crit.get("kws", [])
                        
     def render_row(row, programme: str):
         c1, c2 = st.columns(2)
