@@ -171,13 +171,19 @@ def brand_header():
     st.markdown(f"""
     <div style="
       border-radius: 16px;
-      background: linear-gradient(90deg, var(--sa-primary) 0%, var(--sa-primary-600) 65%, var(--sa-accent) 100%);
-      padding: 18px 20px; color: white; display:flex; align-items:center; gap:16px;
+      background: var(--sa-primary);   /* solid brand blue background */
+      padding: 24px 20px;
+      color: white;
+      text-align: center;
       box-shadow: var(--sa-shadow);">
-      {'<img src="'+logo_src+'" alt="Schuman Associates" style="height:44px; filter:brightness(1.05) contrast(1.05);" />' if logo_src else ''}
-      <div style="flex:1;">
-        <div style="font-size:18px; opacity:.95; font-weight:700;">Schuman Associates · Funding Dashboard</div>
-        <div style="font-size:13px; opacity:.9;">Your European partners in a global market since 1989</div>
+      
+      {'<img src="'+logo_src+'" alt="Schuman Associates" style="height:60px; margin-bottom:12px;" />' if logo_src else ''}
+    
+      <div style="font-size:20px; font-weight:700; margin-bottom:4px;">
+        Schuman Associates · Funding Dashboard
+      </div>
+      <div style="font-size:14px; opacity:.9;">
+        Your European partners in a global market since 1989
       </div>
     </div>
     """, unsafe_allow_html=True)
