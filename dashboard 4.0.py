@@ -211,6 +211,86 @@ def highlight_text(text: str, keywords: list[str], colours=None) -> str:
         out = re.sub(re.escape(kw), lambda m: f"<span style='background-color:{colour}; font-weight:bold;'>{m.group(0)}</span>", out, flags=re.IGNORECASE)
     return out
 
+FOOTNOTE_MIN_WORDS = 8  # tune: how long a block must be to be “body”, not just a stray number
+
+def _find_candidate_blocks(text: str) -> list[tuple[int,int,int,str]]:
+    """
+    Returns a list of candidate footnote blocks as tuples:
+    (start_index, end_index, number, body_text).
+    Strategy:
+      - scan for ' <num> ' boundaries
+      - take the chunk until the next ' <num> ' or end
+      - keep only if the chunk looks like a genuine footnote body
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+
+    # Guard: normalise some spacing so boundaries are consistent
+    t = re.sub(r"[ \t]+", " ", text)
+
+    # positions of ' num ' (1-3 digits) as potential anchors
+    anchors = [(m.start(), m.end(), int(m.group(1))) 
+               for m in re.finditer(r"(?<=\s)(\d{1,3})(?=\s)", t)]
+    if not anchors:
+        return []
+
+    out = []
+    for i, (s, e, n) in enumerate(anchors):
+        next_s = anchors[i+1][0] if i+1 < len(anchors) else len(t)
+        # candidate body spans from right after the number to before the next number
+        body = t[e:next_s].strip()
+
+        # Heuristics to decide if this is a footnote body:
+        #  - reasonably long OR contains a URL OR starts with a capital letter
+        #  - not just punctuation/detritus
+        long_enough = len(body.split()) >= FOOTNOTE_MIN_WORDS
+        has_url = "http://" in body or "https://" in body
+        starts_cap = bool(re.match(r"^[A-ZÀ-ÖØ-Ý]", body))  # EU languages friendly
+        looks_like_body = (long_enough or has_url) and starts_cap
+
+        # Also: common footnote vocabulary—optional boost
+        common_markers = ("This decision", "Vouchers", "Deep tech", "See also", "According to")
+        if any(m in body for m in common_markers):
+            looks_like_body = True
+
+        if looks_like_body:
+            out.append((s, next_s, n, body))
+    return out
+
+def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
+    """
+    Removes detected footnote bodies from `text` and returns:
+      cleaned_text, {footnote_number: footnote_body}
+    """
+    if not isinstance(text, str) or not text.strip():
+        return text, {}
+
+    t = text
+    blocks = _find_candidate_blocks(t)
+    if not blocks:
+        return t, {}
+
+    # Remove bodies from the tail to not disturb earlier indices
+    footnotes: dict[int, str] = {}
+    for s, e, n, body in sorted(blocks, key=lambda x: x[0], reverse=True):
+        footnotes[n] = body.strip()
+        t = t[:s] + " " + t[e:]  # drop the entire “ n <body> ” segment
+
+    # At this point, we’ve removed the bodies, but references like “… deep tech 28 innovation …”
+    # are still plain numbers. Turn them into bracketed refs if we have that footnote in dict.
+    if footnotes:
+        # Build a set of numbers we actually extracted
+        nums = sorted(footnotes.keys(), reverse=True)  # reverse to avoid 1/10 overlap issues
+        # Replace occurrences of " x " with " [x] "
+        for n in nums:
+            t = re.sub(fr"(?<=\w)\s{n}(?=\s)", f" [{n}]", t)
+
+    # Tidy spaces/newlines after removals
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip(), {k: footnotes[k] for k in sorted(footnotes)}
+
+
 def safe_date_series(s: pd.Series) -> pd.Series:
     out = pd.to_datetime(s, errors="coerce", dayfirst=True)
     if out.notna().sum() == 0:
@@ -857,16 +937,42 @@ with tab_full:
 
         if row.get("expected_outcome"):
             with st.expander("🎯 Expected Outcome"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("expected_outcome")))))
-                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
+                raw = str(row.get("expected_outcome") or "")
+                t1 = clean_footer(raw)
+                t2, foots = strip_and_collect_footnotes(t1)
+                t3 = normalize_bullets(t2)
+                html = nl_to_br(t3)
+                st.markdown(highlight_text(html, kw_list), unsafe_allow_html=True)
+                if foots:
+                    with st.expander("📎 Footnotes", expanded=False):
+                        for n, body in foots.items():
+                            st.markdown(f"**[{n}]** {body}")
+
         if row.get("scope"):
             with st.expander("🧭 Scope"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("scope")))))
-                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
+                raw = str(row.get("scope") or "")
+                t1 = clean_footer(raw)
+                t2, foots = strip_and_collect_footnotes(t1)
+                t3 = normalize_bullets(t2)
+                html = nl_to_br(t3)
+                st.markdown(highlight_text(html, kw_list), unsafe_allow_html=True)
+                if foots:
+                    with st.expander("📎 Footnotes", expanded=False):
+                        for n, body in foots.items():
+                            st.markdown(f"**[{n}]** {body}")
+        
         if row.get("full_text"):
             with st.expander("📖 Full Description"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("full_text")))))
-                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
+                raw = str(row.get("full_text") or "")
+                t1 = clean_footer(raw)
+                t2, foots = strip_and_collect_footnotes(t1)
+                t3 = normalize_bullets(t2)
+                html = nl_to_br(t3)
+                st.markdown(highlight_text(html, kw_list), unsafe_allow_html=True)
+                if foots:
+                    with st.expander("📎 Footnotes", expanded=False):
+                        for n, body in foots.items():
+                            st.markdown(f"**[{n}]** {body}")
 
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
