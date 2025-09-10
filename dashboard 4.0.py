@@ -177,7 +177,8 @@ def normalize_bullets(text: str) -> str:
         return ""
     t = text.replace("\r\n", "\n").replace("\r", "\n")
     # 1) replace common bullet glyphs (including '') with a dash
-    t = re.sub(r"(?m)^[ \t]*[▪◦●•]\s*", "- ", t)
+    bullet_chars = r"[▪◦●•�□■∙⋅●◉○◆◇]|\*"   # includes weird ones and asterisk
+    t = re.sub(rf"(?m)^[ \t]*{bullet_chars}\s*", "- ", t)
     # 2) also catch lines that start with dash-like glyphs (–, —, plain - at line start)
     t = re.sub(r"(?m)^[ \t]*[–—-]\s+", "- ", t)
     # 3) collapse excessive whitespace
