@@ -37,6 +37,36 @@ FONT_FILES = [
 ]
 
 # ---------- small utils ----------
+
+# Make dates robust for Gantt (handles missing/invalid ranges)
+def _prepare_dates_for_chart(df: pd.DataFrame, default_window_days: int = 60) -> pd.DataFrame:
+    g = df.copy()
+
+    # End date: prefer final deadline; fall back to closing_date_any if present
+    end = g.get("deadline")
+    if "closing_date_any" in g.columns:
+        end = end.fillna(g["closing_date_any"]) if end is not None else g["closing_date_any"]
+    g["_chart_end"] = end
+
+    # Start date: prefer opening_date; otherwise synthesize as end - default_window_days
+    start = g.get("opening_date")
+    g["_chart_start"] = start
+    have_end_only = g["_chart_start"].isna() & g["_chart_end"].notna()
+    g.loc[have_end_only, "_chart_start"] = g.loc[have_end_only, "_chart_end"] - pd.Timedelta(days=default_window_days)
+
+    # Drop rows with no usable range
+    g = g[g["_chart_start"].notna() & g["_chart_end"].notna()].copy()
+
+    # Fix inverted ranges (start after end) by clipping start to a week before end
+    inverted = g["_chart_start"] > g["_chart_end"]
+    g.loc[inverted, "_chart_start"] = g.loc[inverted, "_chart_end"] - pd.Timedelta(days=7)
+
+    # The chart builder expects columns named opening_date/deadline
+    g["opening_date"] = g["_chart_start"]
+    g["deadline"]     = g["_chart_end"]
+    return g
+
+
 @st.cache_data(show_spinner=False)
 def _file_to_base64(p: Path) -> str | None:
     try:
@@ -672,7 +702,7 @@ with tab_hz:
             st.info("No valid Horizon rows/dates.")
         else:
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), use_container_width=True)
+            st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), width='stretch)
             st.markdown('</div>', unsafe_allow_html=True)
     else:
         if "cluster" not in fh.columns:
@@ -690,7 +720,7 @@ with tab_hz:
                         st.info("No valid rows/dates for this cluster after filters.")
                     else:
                         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field="type_of_action"), use_container_width=True)
+                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field="type_of_action"), width='stretch)
                         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_er:
@@ -699,7 +729,7 @@ with tab_er:
     if g_e.empty: st.info("No valid Erasmus rows/dates.")
     else:
         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-        st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), use_container_width=True)
+        st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), width='stretch)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_tbl:
@@ -709,11 +739,11 @@ with tab_tbl:
     colA, colB = st.columns(2)
     with colA:
         st.markdown(f"### Horizon Europe ({len(fh)})")
-        if len(fh): st.dataframe(fh[show_cols_h], use_container_width=True, hide_index=True)
+        if len(fh): st.dataframe(fh[show_cols_h], width='stretch, hide_index=True)
         else: st.caption("— no rows —")
     with colB:
         st.markdown(f"### Erasmus+ ({len(fe)})")
-        if len(fe): st.dataframe(fe[show_cols_e], use_container_width=True, hide_index=True)
+        if len(fe): st.dataframe(fe[show_cols_e], width='stretch, hide_index=True)
         else: st.caption("— no rows —")
 
 # ★ NEW — helper to render shortlist checkbox + row expander as a single “row”
@@ -877,53 +907,36 @@ with tab_short:
     shortlisted_codes = set(st.session_state.sel35)
     selected_df = ff[ff["code"].astype(str).isin(shortlisted_codes)]
 
-        # --- Gantt for shortlisted items ---
+   # --- Gantt for shortlisted items ---
     st.markdown("### 📅 Gantt — Shortlisted Calls")
 
-    # Controls
+    # Prepare dates with fallbacks so we don't lose rows
+    gsrc = _prepare_dates_for_chart(selected_df)
+
     col_g1, col_g2 = st.columns([1,1])
     with col_g1:
         color_by = st.selectbox(
             "Colour bars by",
-            options=[opt for opt in ["type_of_action", "programme", "cluster"] if opt in selected_df.columns],
-            index=0,
-            help="Choose the field used to colour the bars."
+            options=[opt for opt in ["type_of_action", "programme", "cluster"] if opt in gsrc.columns],
+            index=0
         )
     with col_g2:
         group_hz_clusters = st.checkbox(
             "For Horizon: split into one chart per Cluster",
-            value=False,
-            help="If on, Horizon Europe items are shown as separate Gantts per Cluster. Erasmus+ stays combined."
+            value=False
         )
 
-    # Build overall combined chart (all shortlisted)
-    g_all = build_singlebar_rows(selected_df)
+    g_all = build_singlebar_rows(gsrc)
     if g_all.empty:
-        st.info("No valid dates to render a Gantt for the current shortlist.")
+        # Quick diagnostic for you
+        total = len(selected_df)
+        with_dates = selected_df["deadline"].notna().sum()
+        st.info(f"No valid date ranges for the current shortlist. "
+                f"(Selected: {total}; with any deadline: {with_dates})")
     else:
         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
         st.altair_chart(gantt_singlebar_chart(g_all, color_field=color_by), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
-
-    # Optional: one Gantt per Horizon cluster
-    if group_hz_clusters:
-        hz_only = selected_df[selected_df.get("programme").eq("Horizon Europe")]
-        if not hz_only.empty and "cluster" in hz_only.columns:
-            tmp = hz_only.copy()
-            tmp["cluster"] = tmp["cluster"].fillna("— Unspecified —").replace({"": "— Unspecified —"})
-            groups = list(tmp.groupby("cluster", dropna=False))
-            groups.sort(key=lambda kv: len(kv[1]), reverse=True)
-            st.caption(f"Horizon clusters in shortlist: {len(groups)}")
-            for clu_name, gdf in groups:
-                g_clu = build_singlebar_rows(gdf)
-                with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
-                    if g_clu.empty:
-                        st.info("No valid rows/dates for this cluster.")
-                    else:
-                        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field=color_by), use_container_width=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
-
 
     if not selected_df.empty:
         st.markdown("---")
