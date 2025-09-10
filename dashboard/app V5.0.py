@@ -28,6 +28,29 @@ from utils import (
     generate_docx_report,
 )
 
+def editable_text(field_label: str, field_name: str, raw_text: str, code: str, kw_list: list[str], height: int = 180):
+    """
+    Renders an expander with an editable text area for a field.
+    - Initializes the widget state only ONCE (before instantiation).
+    - Uses a unique key per (field, code).
+    - Shows a highlighted preview of the edited text under the editor.
+    """
+    # Clean before first render
+    clean_text, _ = strip_and_collect_footnotes(clean_footer(raw_text or ""))
+    clean_text = normalize_bullets(clean_text)
+
+    widget_key = f"edit_{field_name}_{code}"
+    # IMPORTANT: initialize default BEFORE the widget is created
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = clean_text
+
+    with st.expander(field_label):
+        st.text_area(f"Edit {field_label.split(' ', 1)[-1]}", key=widget_key, height=height)
+        # Preview with highlighting below the editor (optional)
+        preview = nl_to_br(st.session_state[widget_key])
+        st.markdown(highlight_text(preview, kw_list), unsafe_allow_html=True)
+
+
 # -------------- Page Setup --------------
 st.set_page_config(page_title="Schuman · Funding Dashboard", page_icon="🟦", layout="wide")
 inject_brand_css()
