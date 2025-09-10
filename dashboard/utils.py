@@ -119,6 +119,40 @@ def brand_header():
     """, unsafe_allow_html=True)
 
 # ---------- Text utils ----------
+
+def editable_text(field_label: str, field_name: str, raw_text: str, code: str, kw_list: list[str], height: int = 180):
+    """
+    Renders an expander with an editable text area for a field.
+    - Initializes the widget state only ONCE (before instantiation).
+    - Uses a unique key per (field, code).
+    - Shows a highlighted preview of the edited text under the editor.
+    """
+    # Clean before first render
+    clean_text, _ = strip_and_collect_footnotes(clean_footer(raw_text or ""))
+    clean_text = normalize_bullets(clean_text)
+
+    widget_key = f"edit_{field_name}_{code}"
+    # IMPORTANT: initialize default BEFORE the widget is created
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = clean_text
+
+    with st.expander(field_label):
+        st.text_area(f"Edit {field_label.split(' ', 1)[-1]}", key=widget_key, height=height)
+        # Preview with highlighting below the editor (optional)
+        preview = nl_to_br(st.session_state[widget_key])
+        st.markdown(highlight_text(preview, kw_list), unsafe_allow_html=True)
+
+
+def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
+    """In-place: apply text edits from session_state to df, if present."""
+    for i, row in df.iterrows():
+        code = str(row.get("code") or f"id-{i}")
+        for field in ("expected_outcome", "scope", "full_text"):
+            k = f"edit_{field}_{code}"
+            if k in sstate and isinstance(sstate[k], str) and sstate[k].strip():
+                df.at[i, field] = sstate[k]
+
+
 def clean_footer(text: str) -> str:
     if not text:
         return ""
