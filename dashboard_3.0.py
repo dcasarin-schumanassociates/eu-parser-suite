@@ -368,7 +368,7 @@ def sa_altair_theme():
     return {
         "config": {
             "font": "SA Brand",
-            "axis":   {"labelFont": "SA Brand", "titleFont": "SA Brand", "labelColor":"#0F172A"},
+            "axis":   {"labelFont": "SA Brand", "labelFontWeight": 500, "titleFont": "SA Brand", "labelColor":"#0F172A"},
             "legend": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
             "header": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
             "title":  {"font": "SA Brand", "fontSize": 16, "fontWeight": 700, "color":"#0F172A"},
