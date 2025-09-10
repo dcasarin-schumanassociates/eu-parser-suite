@@ -1,0 +1,90 @@
+/* assets/theme.css */
+
+/* CSS variables & global look */
+:root {
+  --sa-primary:   #1E4F86;
+  --sa-primary-600:#17406B;
+  --sa-primary-700:#123454;
+  --sa-accent:    #00B4D8;
+  --sa-ink:       #0F172A;
+  --sa-muted:     #64748B;
+  --sa-bg:        #F7F9FF;
+  --sa-surface:   #F7F9FF;
+  --sa-border:    #E5E7EB;
+  --sa-font: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji','Segoe UI Emoji', sans-serif;
+  --sa-radius: 12px;
+  --sa-shadow: 0 6px 24px rgba(23,32,84,0.08);
+}
+
+html, body, .stApp {
+  font-family: var(--sa-font) !important;
+  color: var(--sa-ink);
+  background: var(--sa-bg);
+}
+
+.main .block-container { max-width: 1200px; }
+h1,h2,h3,.stMarkdown h1,.stMarkdown h2,.stMarkdown h3{ letter-spacing:.2px; font-weight:700; }
+
+/* widget font weights */
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea {
+  font-family: var(--sa-font) !important;
+  font-weight: 400;
+}
+[data-testid="stSelectbox"] *,
+[data-testid="stMultiSelect"] *,
+div[role="listbox"] * {
+  font-family: var(--sa-font) !important;
+  font-weight: 500;
+}
+[data-testid="stSlider"] *,
+.stSlider {
+  font-family: var(--sa-font) !important;
+  font-weight: 500;
+}
+[data-testid="stRadio"] label,
+[data-testid="stCheckbox"] label {
+  font-family: var(--sa-font) !important;
+  font-weight: 500;
+}
+.stForm h1, .stForm h2, .stForm h3, .stForm .stMarkdown h2 {
+  font-family: var(--sa-font) !important;
+  font-weight: 700;
+  letter-spacing: .2px;
+}
+
+/* Buttons */
+.stButton button{
+  border-radius: var(--sa-radius);
+  border: 1px solid var(--sa-primary-600);
+  background: var(--sa-primary);
+  color: #fff; font-weight: 600;
+  box-shadow: var(--sa-shadow);
+}
+.stButton button:hover{ background: var(--sa-primary-600); border-color: var(--sa-primary-700); }
+
+/* Tabs */
+[role="tablist"] { gap: 6px; }
+[role="tab"]{
+  border: 1px solid var(--sa-border);
+  background: var(--sa-surface);
+  border-radius: var(--sa-radius);
+  padding: .4rem .8rem;
+  font-weight: 600;
+}
+[role="tab"][aria-selected="true"]{
+  border-color: var(--sa-primary-600);
+  box-shadow: var(--sa-shadow);
+  background: #fff;
+}
+
+/* Cards / Scroll containers */
+.scroll-container{
+  overflow:auto; max-height: 900px; padding:16px; border:1px solid var(--sa-border);
+  border-radius: var(--sa-radius); background: #fff; box-shadow: var(--sa-shadow);
+}
+
+/* Inputs - roundness + data tables */
+.stMultiSelect, .stSelectbox, .stTextInput, .stSlider { border-radius: var(--sa-radius) !important; }
+.stDataFrame, .stTable { font-size: .94rem; }
