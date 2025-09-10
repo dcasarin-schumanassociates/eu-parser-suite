@@ -176,27 +176,12 @@ def clean_footer(text: str) -> str:
 
 def normalize_bullets(text: str) -> str:
     """
-    Normalize only common bullet characters into '- '.
-    Each bullet is forced to start on a new line.
+    Stub: do nothing, return text unchanged.
     """
-    if not isinstance(text, str) or text.strip() == "":
+    if not isinstance(text, str):
         return ""
+    return text
 
-    t = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # Most common bullet-like markers (ascii dash, en/em dash, •, ●, ▪, ◦, etc.)
-    bullet_chars = r"[•●▪◦-]"
-
-    # Replace them at line starts with "- "
-    t = re.sub(rf"(?m)^\s*{bullet_chars}\s*", "- ", t)
-
-    # If a bullet marker accidentally appears mid-line, force it to break into a new line
-    t = re.sub(rf"(?<!\n)\s*{bullet_chars}\s*", r"\n- ", t)
-
-    # Collapse excessive blank lines
-    t = re.sub(r"\n{3,}", "\n\n", t)
-
-    return t.strip()
 
 def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
     """Neutered placeholder — returns text unchanged and empty dict."""
