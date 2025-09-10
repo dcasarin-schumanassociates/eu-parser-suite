@@ -63,74 +63,63 @@ def inject_brand_css():
                 """)
     font_css = "\n".join(font_faces)
 
-    # Global brand CSS
+    # Inject combined CSS
     st.markdown(f"""
     <style>
       {font_css}
       :root {{
-        /* Palette — tune if you have exact brand hexes */
-        --sa-primary:   #1E4F86;   /* Schuman deep blue (close to logo) */
+        --sa-primary:   #1E4F86;
         --sa-primary-600:#17406B;
         --sa-primary-700:#123454;
-        --sa-accent:    #00B4D8;   /* supportive accent */
-        --sa-ink:       #0F172A;   /* main text */
-        --sa-muted:     #64748B;   /* secondary text */
+        --sa-accent:    #00B4D8;
+        --sa-ink:       #0F172A;
+        --sa-muted:     #64748B;
         --sa-bg:        #FFFFFF;
         --sa-surface:   #F7F9FF;
         --sa-border:    #E5E7EB;
-
         --sa-font: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji','Segoe UI Emoji', sans-serif;
         --sa-radius: 12px;
         --sa-shadow: 0 6px 24px rgba(23,32,84,0.08);
       }}
-      html, body, .stApp {{ font-family: var(--sa-font) !important; color: var(--sa-ink); background: var(--sa-bg); }}
+
+      html, body, .stApp {{
+        font-family: var(--sa-font) !important;
+        color: var(--sa-ink);
+        background: var(--sa-bg);
+      }}
 
       .main .block-container {{ max-width: 1200px; }}
       h1,h2,h3,.stMarkdown h1,.stMarkdown h2,.stMarkdown h3{{ letter-spacing:.2px; font-weight:700; }}
 
-    st.markdown("""
-    <style>
       /* ---- FONT FAMILY + WEIGHTS FOR WIDGETS ---- */
-      /* Inputs (text, number, textarea) */
       .stTextInput input,
       .stNumberInput input,
-      .stTextArea textarea {
+      .stTextArea textarea {{
         font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 400;   /* Regular by default */
-      }
-    
-      /* Selects / Multiselects: label, control, chips, menu options */
+        font-weight: 400;
+      }}
       [data-testid="stSelectbox"] *,
       [data-testid="stMultiSelect"] *,
-      div[role="listbox"] * {
+      div[role="listbox"] * {{
         font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
         font-weight: 500;
-      }
-    
-      /* Sliders (labels & ticks) */
+      }}
       [data-testid="stSlider"] *,
-      .stSlider {
-        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 500;   /* a touch stronger for readability */
-      }
-    
-      /* Radios / Checkboxes (labels) */
-      [data-testid="stRadio"] label,
-      [data-testid="stCheckbox"] label {
+      .stSlider {{
         font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
         font-weight: 500;
-      }
-    
-      /* Section/subsection titles in your filters form */
-      .stForm h1, .stForm h2, .stForm h3, .stForm .stMarkdown h2 {
+      }}
+      [data-testid="stRadio"] label,
+      [data-testid="stCheckbox"] label {{
         font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 700;  /* Heading weight */
+        font-weight: 500;
+      }}
+      .stForm h1, .stForm h2, .stForm h3, .stForm .stMarkdown h2 {{
+        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
+        font-weight: 700;
         letter-spacing: .2px;
-      }
-    </style>
-    """, unsafe_allow_html=True)
+      }}
 
-             
       /* Buttons */
       .stButton button{{
         border-radius: var(--sa-radius);
@@ -167,6 +156,7 @@ def inject_brand_css():
       .stDataFrame, .stTable {{ font-size: .94rem; }}
     </style>
     """, unsafe_allow_html=True)
+
 
 def brand_header():
     """Top hero header with gradient and logo."""
