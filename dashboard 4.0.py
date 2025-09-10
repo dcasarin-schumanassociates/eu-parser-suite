@@ -1,8 +1,8 @@
-# app_b3_6.py — Streamlit Funding Dashboard (Schuman-branded)
+# app_b4_0.py — Streamlit Funding Dashboard (Schuman-branded)
 from __future__ import annotations
 import io, re, base64
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pathlib import Path
 
 import pandas as pd
@@ -12,11 +12,17 @@ import altair as alt
 # Optional DOCX for shortlist export
 try:
     from docx import Document
-    from docx.shared import Pt
+    from docx.shared import Pt, Inches   # ★ NEW: Inches for image sizing
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     DOCX_AVAILABLE = True
 except Exception:
     DOCX_AVAILABLE = False
+
+# For exporting a PNG Gantt into the DOCX
+import matplotlib
+matplotlib.use("Agg")  # headless backend
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # ------------------------------------------------------------
 # Brand assets locations
@@ -65,7 +71,6 @@ def _prepare_dates_for_chart(df: pd.DataFrame, default_window_days: int = 60) ->
     g["opening_date"] = g["_chart_start"]
     g["deadline"]     = g["_chart_end"]
     return g
-
 
 @st.cache_data(show_spinner=False)
 def _file_to_base64(p: Path) -> str | None:
@@ -475,13 +480,90 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 
     return chart if not title else chart.properties(title=title)
 
-# --------- Report (DOCX) ----------
-def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], title="Funding Report") -> bytes:
+# --------- DOCX + Gantt PNG ----------
+def _shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> Optional[bytes]:
+    """
+    Render a compact horizontal Gantt PNG for the shortlist to embed into DOCX.
+    Uses matplotlib (no Node/selenium/altair_saver needed).
+    """
+    if df is None or df.empty:
+        return None
+    g = _prepare_dates_for_chart(df)
+    g = g[pd.notna(g["opening_date"]) & pd.notna(g["deadline"]) & (g["opening_date"] <= g["deadline"])].copy()
+    if g.empty:
+        return None
+
+    # Build labels (prefer code then title)
+    base = g["code"].fillna("").astype(str)
+    fallback = g["title"].fillna("").astype(str)
+    labels = base.where(base.ne(""), fallback)
+    # ensure uniqueness
+    labels = labels + g.groupby(labels).cumcount().replace(0, "").astype(str).radd("#").replace("#0", "")
+
+    g["_y"] = labels
+    g = g.sort_values(["deadline","opening_date"]).reset_index(drop=True)
+
+    # Colors by 'color_by' if present
+    categories = g.get(color_by) if color_by in g.columns else None
+    if categories is not None:
+        cats = categories.fillna("—").astype(str)
+        uniq = pd.unique(cats)
+        cmap = plt.get_cmap("tab20")
+        color_map = {c: cmap(i % 20) for i, c in enumerate(uniq)}
+        colors = cats.map(color_map)
+    else:
+        colors = None
+
+    # Figure size scales with rows (caps for doc)
+    n = len(g)
+    h = max(3.0, min(0.4 * n + 1.0, 10.0))  # 0.4in/row, cap at ~10in
+    fig, ax = plt.subplots(figsize=(10, h), dpi=160)  # ~full-width for a docx 6.5" image
+
+    # Convert dates
+    start_nums = mdates.date2num(pd.to_datetime(g["opening_date"]).dt.to_pydatetime())
+    dur = (pd.to_datetime(g["deadline"]) - pd.to_datetime(g["opening_date"])).dt.days.clip(lower=1)
+
+    y_pos = range(n)
+    ax.barh(list(y_pos), dur, left=start_nums, height=0.35,
+            align="center", color=(colors if colors is not None else None), edgecolor="none")
+
+    ax.set_yticks(list(y_pos))
+    ax.set_yticklabels(g["_y"])
+    ax.invert_yaxis()
+
+    # X-axis formatting
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    for tick in ax.get_xticklabels():
+        tick.set_rotation(0)
+
+    # Today line
+    today = mdates.date2num(pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None).to_pydatetime())
+    ax.axvline(today, linestyle="--", linewidth=1.5, color="#1E4F86")
+
+    ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.6)
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    plt.tight_layout()
+
+    bio = io.BytesIO()
+    plt.savefig(bio, format="png", bbox_inches="tight")
+    plt.close(fig)
+    bio.seek(0)
+    return bio.getvalue()
+
+def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], title="Funding Report",
+                         shortlist_gantt_png: Optional[bytes] = None) -> bytes:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx not installed")
     doc = Document()
     h = doc.add_heading(title, level=0); h.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p = doc.add_paragraph(f"Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}"); p.runs[0].font.size = Pt(9)
+
+    # ★ NEW: include shortlist Gantt image if provided
+    if shortlist_gantt_png:
+        doc.add_heading("Shortlist Gantt", level=1)
+        doc.add_picture(io.BytesIO(shortlist_gantt_png), width=Inches(6.5))
 
     table = doc.add_table(rows=1, cols=5); hdr = table.rows[0].cells
     for i, t in enumerate(["Programme","Code","Title","Opening","Deadline"]): hdr[i].text = t
@@ -545,7 +627,7 @@ df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe", _ver=1)
 df_e = load_programme(upl.getvalue(), er_sheet, "Erasmus+",      _ver=1)
 
 # ------- Build filter choices -------
-all_df = pd.concat([df_h, df_e], ignore_index=True)  # streamlined: programme already set
+all_df = pd.concat([df_h, df_e], ignore_index=True)  # programme already set
 opening_years  = sorted([int(y) for y in all_df["opening_year"].dropna().unique()])
 deadline_years = sorted([int(y) for y in all_df["deadline_year"].dropna().unique()])
 type_opts      = sorted([t for t in all_df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t!=""])
@@ -631,14 +713,14 @@ if applied or not st.session_state.crit35:
     )
 crit = st.session_state.crit35
 
-# ★ NEW — shortlist state helper
+# ★ shortlist state helper
 def _ensure_shortlist_state():
     if "sel35" not in st.session_state: st.session_state.sel35 = set()
     if "notes35" not in st.session_state: st.session_state.notes35 = {}
-
+    if "shortlist_chart_png" not in st.session_state: st.session_state.shortlist_chart_png = None
 _ensure_shortlist_state()
 
-# Filtering helpers (streamlined)
+# Filtering helpers
 def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
     terms = [t.strip().lower() for t in terms if t and str(t).strip()]
     if not terms:
@@ -746,9 +828,8 @@ with tab_tbl:
         if len(fe): st.dataframe(fe[show_cols_e], use_container_width=True, hide_index=True)
         else: st.caption("— no rows —")
 
-# ★ NEW — helper to render shortlist checkbox + row expander as a single “row”
+# helper to render shortlist checkbox + row expander as a single “row”
 def render_shortlist_row(exp_label: str, code: str, render_body_fn):
-    # two-column row: left = shortlist checkbox, right = expander + content
     row_cols = st.columns([0.16, 0.84])
     with row_cols[0]:
         checked = code in st.session_state.sel35
@@ -893,7 +974,6 @@ with tab_short:
     selected_df = ff[ff["code"].astype(str).isin(shortlisted_codes)]
 
     st.markdown("**Your shortlisted calls** (you can uncheck to remove):")
-    # Keep the ability to modify selection here as well (stays in sync)
     for idx, r in selected_df.iterrows():
         code = str(r.get("code") or "")
         title = str(r.get("title") or "")
@@ -907,10 +987,9 @@ with tab_short:
     shortlisted_codes = set(st.session_state.sel35)
     selected_df = ff[ff["code"].astype(str).isin(shortlisted_codes)]
 
-   # --- Gantt for shortlisted items ---
+    # --- Gantt for shortlisted items (Altair in-app, Matplotlib for DOCX) ---
     st.markdown("### 📅 Gantt — Shortlisted Calls")
 
-    # Prepare dates with fallbacks so we don't lose rows
     gsrc = _prepare_dates_for_chart(selected_df)
 
     col_g1, col_g2 = st.columns([1,1])
@@ -928,16 +1007,37 @@ with tab_short:
 
     g_all = build_singlebar_rows(gsrc)
     if g_all.empty:
-        # Quick diagnostic for you
         total = len(selected_df)
         with_dates = selected_df["deadline"].notna().sum()
-        st.info(f"No valid date ranges for the current shortlist. "
-                f"(Selected: {total}; with any deadline: {with_dates})")
+        st.info(f"No valid date ranges for the current shortlist. (Selected: {total}; with any deadline: {with_dates})")
+        st.session_state.shortlist_chart_png = None
     else:
         st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
         st.altair_chart(gantt_singlebar_chart(g_all, color_field=color_by), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+        # Build the PNG once for DOCX
+        st.session_state.shortlist_chart_png = _shortlist_gantt_png(gsrc, color_by=color_by)
 
+    # Optional: one Gantt per Horizon cluster (display-only)
+    if group_hz_clusters and not g_all.empty:
+        hz_only = gsrc[gsrc.get("programme").eq("Horizon Europe")]
+        if not hz_only.empty and "cluster" in hz_only.columns:
+            tmp = hz_only.copy()
+            tmp["cluster"] = tmp["cluster"].fillna("— Unspecified —").replace({"": "— Unspecified —"})
+            groups = list(tmp.groupby("cluster", dropna=False))
+            groups.sort(key=lambda kv: len(kv[1]), reverse=True)
+            st.caption(f"Horizon clusters in shortlist: {len(groups)}")
+            for clu_name, gdf in groups:
+                g_clu = build_singlebar_rows(gdf)
+                with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
+                    if g_clu.empty:
+                        st.info("No valid rows/dates for this cluster.")
+                    else:
+                        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field=color_by), use_container_width=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Notes + DOCX
     if not selected_df.empty:
         st.markdown("---")
         for _, r in selected_df.iterrows():
@@ -946,12 +1046,17 @@ with tab_short:
             st.session_state.notes35[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note35_{code}")
 
         colA, _colB = st.columns(2)
-        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b3.6)")
+        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b4.0)")
 
         if st.button("📄 Generate DOCX"):
             try:
                 if DOCX_AVAILABLE:
-                    data = generate_docx_report(selected_df, st.session_state.notes35, title=title)
+                    data = generate_docx_report(
+                        selected_df,
+                        st.session_state.notes35,
+                        title=title,
+                        shortlist_gantt_png=st.session_state.shortlist_chart_png  # ★ NEW
+                    )
                     st.download_button("⬇️ Download .docx", data=data,
                                        file_name="funding_report.docx",
                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
