@@ -259,36 +259,49 @@ def _find_candidate_blocks(text: str) -> list[tuple[int,int,int,str]]:
 
 def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
     """
-    Removes detected footnote bodies from `text` and returns:
-      cleaned_text, {footnote_number: footnote_body}
+    Removes Horizon-style inline footnotes and collects them.
+    Returns (cleaned_text, {num: body}).
     """
     if not isinstance(text, str) or not text.strip():
         return text, {}
 
     t = text
-    blocks = _find_candidate_blocks(t)
-    if not blocks:
-        return t, {}
-
-    # Remove bodies from the tail to not disturb earlier indices
     footnotes: dict[int, str] = {}
-    for s, e, n, body in sorted(blocks, key=lambda x: x[0], reverse=True):
-        footnotes[n] = body.strip()
-        t = t[:s] + " " + t[e:]  # drop the entire “ n <body> ” segment
 
-    # At this point, we’ve removed the bodies, but references like “… deep tech 28 innovation …”
-    # are still plain numbers. Turn them into bracketed refs if we have that footnote in dict.
-    if footnotes:
-        # Build a set of numbers we actually extracted
-        nums = sorted(footnotes.keys(), reverse=True)  # reverse to avoid 1/10 overlap issues
-        # Replace occurrences of " x " with " [x] "
-        for n in nums:
-            t = re.sub(fr"(?<=\w)\s{n}(?=\s)", f" [{n}]", t)
+    # Regex: matches " <num> <body...>" where body starts with lowercase or common intro
+    pat = re.compile(
+        r"(?<=\s)(\d{1,3})\s+(?=(on|in|at|this|these|such|deep|vouchers|according|see|europa|https?))",
+        re.IGNORECASE,
+    )
 
-    # Tidy spaces/newlines after removals
-    t = re.sub(r"[ \t]+", " ", t)
-    t = re.sub(r"\n{3,}", "\n\n", t)
-    return t.strip(), {k: footnotes[k] for k in sorted(footnotes)}
+    idx = 0
+    while True:
+        m = pat.search(t, idx)
+        if not m:
+            break
+        n = int(m.group(1))
+
+        # find end of footnote body: stop at next number marker, semicolon+capital, or bullet
+        start = m.start(1)
+        after = m.end(1)
+        next_num = re.search(r"(?<=\s)\d{1,3}\s+", t[after:])
+        cutoff = after + next_num.start() if next_num else len(t)
+
+        # extract body candidate
+        body = t[after:cutoff].strip()
+        if len(body.split()) < 4:
+            idx = after
+            continue
+
+        footnotes[n] = body
+        # replace in text with just [n]
+        t = t[:start] + f"[{n}] " + t[cutoff:]
+        idx = start + len(f"[{n}] ")
+
+    # tidy up spaces
+    t = re.sub(r"\s+", " ", t)
+    return t.strip(), footnotes
+
 
 
 def safe_date_series(s: pd.Series) -> pd.Series:
