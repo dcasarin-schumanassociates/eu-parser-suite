@@ -104,7 +104,7 @@ def inject_brand_css():
       [data-testid="stMultiSelect"] *,
       div[role="listbox"] * {
         font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 400;
+        font-weight: 500;
       }
     
       /* Sliders (labels & ticks) */
