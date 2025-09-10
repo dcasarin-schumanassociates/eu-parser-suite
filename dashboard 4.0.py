@@ -1,4 +1,4 @@
-# app_b4_0.py — Streamlit Funding Dashboard (Schuman-branded)
+# app_b4_1.py — Streamlit Funding Dashboard (Schuman-branded)
 from __future__ import annotations
 import io, re, base64
 from datetime import datetime
@@ -12,7 +12,7 @@ import altair as alt
 # Optional DOCX for shortlist export
 try:
     from docx import Document
-    from docx.shared import Pt, Inches   # ★ NEW: Inches for image sizing
+    from docx.shared import Pt, Inches   # Inches for image sizing
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     DOCX_AVAILABLE = True
 except Exception:
@@ -79,8 +79,15 @@ def _file_to_base64(p: Path) -> str | None:
     except Exception:
         return None
 
+@st.cache_data(show_spinner=False)
+def _read_theme_css(path: Path) -> str:
+    # include mtime in cache key to invalidate on edit
+    _ = path.stat().st_mtime if path.exists() else 0
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
 def inject_brand_css():
-    """Inject global CSS with brand palette, fonts, rounded corners, shadows."""
+    """Injects @font-face (dynamic from OTFs) + static theme from assets/theme.css."""
+    # 1) Build @font-face blocks for any available OTFs (base64 inline)
     font_faces = []
     for fam, style, weight, path in FONT_FILES:
         if path.exists():
@@ -97,98 +104,11 @@ def inject_brand_css():
                 """)
     font_css = "\n".join(font_faces)
 
-    st.markdown(f"""
-    <style>
-      {font_css}
-      :root {{
-        --sa-primary:   #1E4F86;
-        --sa-primary-600:#17406B;
-        --sa-primary-700:#123454;
-        --sa-accent:    #00B4D8;
-        --sa-ink:       #0F172A;
-        --sa-muted:     #64748B;
-        --sa-bg:        #F7F9FF;
-        --sa-surface:   #F7F9FF;
-        --sa-border:    #E5E7EB;
-        --sa-font: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji','Segoe UI Emoji', sans-serif;
-        --sa-radius: 12px;
-        --sa-shadow: 0 6px 24px rgba(23,32,84,0.08);
-      }}
+    # 2) Load static theme css
+    theme_css = _read_theme_css(ASSETS_DIR / "theme.css")
 
-      html, body, .stApp {{
-        font-family: var(--sa-font) !important;
-        color: var(--sa-ink);
-        background: var(--sa-bg);
-      }}
-
-      .main .block-container {{ max-width: 1200px; }}
-      h1,h2,h3,.stMarkdown h1,.stMarkdown h2,.stMarkdown h3{{ letter-spacing:.2px; font-weight:700; }}
-
-      /* ---- FONT FAMILY + WEIGHTS FOR WIDGETS ---- */
-      .stTextInput input,
-      .stNumberInput input,
-      .stTextArea textarea {{
-        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 400;
-      }}
-      [data-testid="stSelectbox"] *,
-      [data-testid="stMultiSelect"] *,
-      div[role="listbox"] * {{
-        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 500;
-      }}
-      [data-testid="stSlider"] *,
-      .stSlider {{
-        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 500;
-      }}
-      [data-testid="stRadio"] label,
-      [data-testid="stCheckbox"] label {{
-        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 500;
-      }}
-      .stForm h1, .stForm h2, .stForm h3, .stForm .stMarkdown h2 {{
-        font-family: 'SA Brand', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif !important;
-        font-weight: 700;
-        letter-spacing: .2px;
-      }}
-
-      /* Buttons */
-      .stButton button{{
-        border-radius: var(--sa-radius);
-        border: 1px solid var(--sa-primary-600);
-        background: var(--sa-primary);
-        color: #fff; font-weight: 600;
-        box-shadow: var(--sa-shadow);
-      }}
-      .stButton button:hover{{ background: var(--sa-primary-600); border-color: var(--sa-primary-700); }}
-
-      /* Tabs */
-      [role="tablist"] {{ gap: 6px; }}
-      [role="tab"]{{
-        border: 1px solid var(--sa-border);
-        background: var(--sa-surface);
-        border-radius: var(--sa-radius);
-        padding: .4rem .8rem;
-        font-weight: 600;
-      }}
-      [role="tab"][aria-selected="true"]{{
-        border-color: var(--sa-primary-600);
-        box-shadow: var(--sa-shadow);
-        background: #fff;
-      }}
-
-      /* Cards / Scroll containers */
-      .scroll-container{{
-        overflow:auto; max-height: 900px; padding:16px; border:1px solid var(--sa-border);
-        border-radius: var(--sa-radius); background: #fff; box-shadow: var(--sa-shadow);
-      }}
-
-      /* Inputs - roundness */
-      .stMultiSelect, .stSelectbox, .stTextInput, .stSlider {{ border-radius: var(--sa-radius) !important; }}
-      .stDataFrame, .stTable {{ font-size: .94rem; }}
-    </style>
-    """, unsafe_allow_html=True)
+    # 3) Inject
+    st.markdown(f"<style>\n{font_css}\n{theme_css}\n</style>", unsafe_allow_html=True)
 
 def brand_header():
     """Top hero header with gradient and logo."""
@@ -484,7 +404,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 def _shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> Optional[bytes]:
     """
     Render a compact horizontal Gantt PNG for the shortlist to embed into DOCX.
-    Uses matplotlib (no Node/selenium/altair_saver needed).
+    Uses matplotlib (no altair_saver/node).
     """
     if df is None or df.empty:
         return None
@@ -493,11 +413,10 @@ def _shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> 
     if g.empty:
         return None
 
-    # Build labels (prefer code then title)
+    # Labels (prefer code then title), ensure uniqueness
     base = g["code"].fillna("").astype(str)
     fallback = g["title"].fillna("").astype(str)
     labels = base.where(base.ne(""), fallback)
-    # ensure uniqueness
     labels = labels + g.groupby(labels).cumcount().replace(0, "").astype(str).radd("#").replace("#0", "")
 
     g["_y"] = labels
@@ -514,12 +433,10 @@ def _shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> 
     else:
         colors = None
 
-    # Figure size scales with rows (caps for doc)
     n = len(g)
-    h = max(3.0, min(0.4 * n + 1.0, 10.0))  # 0.4in/row, cap at ~10in
-    fig, ax = plt.subplots(figsize=(10, h), dpi=160)  # ~full-width for a docx 6.5" image
+    h = max(3.0, min(0.4 * n + 1.0, 10.0))  # ~0.4in/row
+    fig, ax = plt.subplots(figsize=(10, h), dpi=160)
 
-    # Convert dates
     start_nums = mdates.date2num(pd.to_datetime(g["opening_date"]).dt.to_pydatetime())
     dur = (pd.to_datetime(g["deadline"]) - pd.to_datetime(g["opening_date"])).dt.days.clip(lower=1)
 
@@ -531,13 +448,9 @@ def _shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> 
     ax.set_yticklabels(g["_y"])
     ax.invert_yaxis()
 
-    # X-axis formatting
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
-    for tick in ax.get_xticklabels():
-        tick.set_rotation(0)
 
-    # Today line
     today = mdates.date2num(pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None).to_pydatetime())
     ax.axvline(today, linestyle="--", linewidth=1.5, color="#1E4F86")
 
@@ -560,7 +473,7 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], t
     h = doc.add_heading(title, level=0); h.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p = doc.add_paragraph(f"Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}"); p.runs[0].font.size = Pt(9)
 
-    # ★ NEW: include shortlist Gantt image if provided
+    # Include shortlist Gantt image if provided
     if shortlist_gantt_png:
         doc.add_heading("Shortlist Gantt", level=1)
         doc.add_picture(io.BytesIO(shortlist_gantt_png), width=Inches(6.5))
@@ -699,6 +612,12 @@ with st.form("filters", clear_on_submit=False):
 
     applied = st.form_submit_button("Apply filters")
 
+# ---- track if user has applied filters at least once (welcome state)
+if "has_applied" not in st.session_state:
+    st.session_state.has_applied = False
+if applied:
+    st.session_state.has_applied = True
+
 # Persist criteria
 if "crit35" not in st.session_state:
     st.session_state.crit35 = {}
@@ -719,6 +638,22 @@ def _ensure_shortlist_state():
     if "notes35" not in st.session_state: st.session_state.notes35 = {}
     if "shortlist_chart_png" not in st.session_state: st.session_state.shortlist_chart_png = None
 _ensure_shortlist_state()
+
+# ---- performance guardrails
+MAX_RENDER = 300  # tweak to taste
+
+def guard_large_render(filt_df: pd.DataFrame, view_name: str) -> bool:
+    """
+    Returns True if safe to render this heavy view, else shows warning + 'Render anyway'.
+    """
+    n = len(filt_df)
+    if n <= MAX_RENDER:
+        return True
+    st.warning(
+        f"This {view_name} would render **{n} rows**, which may be slow. "
+        f"Refine your filters or confirm to continue."
+    )
+    return st.button(f"Render anyway ({view_name})", key=f"render_anyway_{view_name}_{n}")
 
 # Filtering helpers
 def multi_keyword_filter(df: pd.DataFrame, terms: list[str], mode: str, title_code_only: bool) -> pd.DataFrame:
@@ -766,6 +701,17 @@ fh = apply_horizon_filters(df_h)
 fe = apply_erasmus_filters(df_e)
 st.caption(f"Rows after filters — Horizon: {len(fh)} | Erasmus: {len(fe)}")
 
+# ---- empty state: don't render tabs until filters are applied
+if not st.session_state.has_applied:
+    st.markdown(
+        """
+        ### 👋 Welcome
+        Use the **Filters** above and click **Apply filters** to load matching calls.
+        - Tip: start with *Opening/Deadline year* or turn on **Open calls only**.
+        """
+    )
+    st.stop()
+
 # ------------------------------ Tabs ------------------------------
 tab_hz, tab_er, tab_tbl, tab_full, tab_short = st.tabs([
     "📅 Gantt — Horizon", "📅 Gantt — Erasmus", "📋 Tables", "📚 Full Data", "📝 Shortlist"
@@ -779,13 +725,14 @@ with tab_hz:
         help="When enabled, the Horizon chart is split into one dropdown per Cluster."
     )
     if not group_by_cluster:
-        g_h = build_singlebar_rows(fh)
-        if g_h.empty:
-            st.info("No valid Horizon rows/dates.")
-        else:
-            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+        if guard_large_render(fh, "Horizon Gantt"):
+            g_h = build_singlebar_rows(fh)
+            if g_h.empty:
+                st.info("No valid Horizon rows/dates.")
+            else:
+                st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+                st.altair_chart(gantt_singlebar_chart(g_h, color_field="type_of_action"), use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
     else:
         if "cluster" not in fh.columns:
             st.warning("Column 'cluster' not available in Horizon dataset.")
@@ -796,6 +743,8 @@ with tab_hz:
             groups.sort(key=lambda kv: len(kv[1]), reverse=True)
             st.caption(f"Clusters found: {len(groups)}")
             for clu_name, gdf in groups:
+                if not guard_large_render(gdf, f"Horizon Gantt · {clu_name}"):
+                    continue
                 g_clu = build_singlebar_rows(gdf)
                 with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
                     if g_clu.empty:
@@ -807,26 +756,38 @@ with tab_hz:
 
 with tab_er:
     st.subheader("Gantt — Erasmus+ (Opening → Deadline)")
-    g_e = build_singlebar_rows(fe)
-    if g_e.empty: st.info("No valid Erasmus rows/dates.")
-    else:
-        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-        st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    if guard_large_render(fe, "Erasmus Gantt"):
+        g_e = build_singlebar_rows(fe)
+        if g_e.empty: st.info("No valid Erasmus rows/dates.")
+        else:
+            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+            st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_tbl:
     st.subheader("Tables")
+
+    def show_paged_df(df: pd.DataFrame, label: str, cols: list[str], page_size_default: int = 50):
+        if df.empty:
+            st.caption("— no rows —")
+            return
+        with st.expander(f"{label} — options", expanded=False):
+            page_size = st.number_input("Rows per page", 10, 500, page_size_default, 10, key=f"ps_{label}")
+            max_page = max(1, (len(df)-1)//page_size + 1)
+            page = st.number_input("Page", 1, max_page, 1, 1, key=f"pg_{label}")
+        start = (page-1)*page_size
+        end = start + page_size
+        st.dataframe(df[cols].iloc[start:end], use_container_width=True, hide_index=True)
+        st.caption(f"Showing {min(end, len(df))}/{len(df)}")
+
     show_cols_h = [c for c in DISPLAY_COLS if c in fh.columns]
     show_cols_e = [c for c in DISPLAY_COLS if c in fe.columns]
-    colA, colB = st.columns(2)
-    with colA:
-        st.markdown(f"### Horizon Europe ({len(fh)})")
-        if len(fh): st.dataframe(fh[show_cols_h], use_container_width=True, hide_index=True)
-        else: st.caption("— no rows —")
-    with colB:
-        st.markdown(f"### Erasmus+ ({len(fe)})")
-        if len(fe): st.dataframe(fe[show_cols_e], use_container_width=True, hide_index=True)
-        else: st.caption("— no rows —")
+
+    st.markdown(f"### Horizon Europe ({len(fh)})")
+    show_paged_df(fh, "Horizon", show_cols_h)
+
+    st.markdown(f"### Erasmus+ ({len(fe)})")
+    show_paged_df(fe, "Erasmus", show_cols_e)
 
 # helper to render shortlist checkbox + row expander as a single “row”
 def render_shortlist_row(exp_label: str, code: str, render_body_fn):
@@ -900,6 +861,8 @@ with tab_full:
 
     # ----- HORIZON -----
     st.markdown(f"### Horizon Europe ({len(fh)})")
+    if not guard_large_render(fh, "Full Data — Horizon"):
+        st.stop()
     group_hz = st.checkbox(
         "Group Horizon by Cluster (dropdowns)",
         value=False,
@@ -909,9 +872,9 @@ with tab_full:
         st.caption("— no Horizon rows after filters —")
     else:
         if not group_hz:
-            for _, r in fh.iterrows():
+            for i, r in fh.iterrows():
                 label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
-                code = str(r.get("code") or f"id-{_}")
+                code = str(r.get("code") or f"id-{i}")
                 render_shortlist_row(
                     label, code,
                     lambda rr=r: render_row(rr, "Horizon Europe")
@@ -925,9 +888,9 @@ with tab_full:
             for clu_name, gdf in groups:
                 disp = str(clu_name)
                 with st.expander(f"Cluster: {disp}  ({len(gdf)} calls)", expanded=False):
-                    for _, r in gdf.iterrows():
+                    for i, r in gdf.iterrows():
                         label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
-                        code = str(r.get("code") or f"id-{_}")
+                        code = str(r.get("code") or f"id-{i}")
                         render_shortlist_row(
                             label, code,
                             lambda rr=r: render_row(rr, "Horizon Europe")
@@ -935,12 +898,14 @@ with tab_full:
 
     # ----- ERASMUS -----
     st.markdown(f"### Erasmus+ ({len(fe)})")
+    if not guard_large_render(fe, "Full Data — Erasmus"):
+        st.stop()
     if len(fe) == 0:
         st.caption("— no Erasmus rows after filters —")
     else:
-        for _, r in fe.iterrows():
+        for i, r in fe.iterrows():
             label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
-            code = str(r.get("code") or f"id-{_}")
+            code = str(r.get("code") or f"id-{i}")
             render_shortlist_row(
                 label, code,
                 lambda rr=r: render_row(rr, "Erasmus+")
@@ -988,54 +953,55 @@ with tab_short:
     selected_df = ff[ff["code"].astype(str).isin(shortlisted_codes)]
 
     # --- Gantt for shortlisted items (Altair in-app, Matplotlib for DOCX) ---
-    st.markdown("### 📅 Gantt — Shortlisted Calls")
+    if guard_large_render(selected_df, "Shortlist Gantt"):
+        st.markdown("### 📅 Gantt — Shortlisted Calls")
 
-    gsrc = _prepare_dates_for_chart(selected_df)
+        gsrc = _prepare_dates_for_chart(selected_df)
 
-    col_g1, col_g2 = st.columns([1,1])
-    with col_g1:
-        color_by = st.selectbox(
-            "Colour bars by",
-            options=[opt for opt in ["type_of_action", "programme", "cluster"] if opt in gsrc.columns],
-            index=0
-        )
-    with col_g2:
-        group_hz_clusters = st.checkbox(
-            "For Horizon: split into one chart per Cluster",
-            value=False
-        )
+        col_g1, col_g2 = st.columns([1,1])
+        with col_g1:
+            color_by = st.selectbox(
+                "Colour bars by",
+                options=[opt for opt in ["type_of_action", "programme", "cluster"] if opt in gsrc.columns],
+                index=0
+            )
+        with col_g2:
+            group_hz_clusters = st.checkbox(
+                "For Horizon: split into one chart per Cluster",
+                value=False
+            )
 
-    g_all = build_singlebar_rows(gsrc)
-    if g_all.empty:
-        total = len(selected_df)
-        with_dates = selected_df["deadline"].notna().sum()
-        st.info(f"No valid date ranges for the current shortlist. (Selected: {total}; with any deadline: {with_dates})")
-        st.session_state.shortlist_chart_png = None
-    else:
-        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-        st.altair_chart(gantt_singlebar_chart(g_all, color_field=color_by), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        # Build the PNG once for DOCX
-        st.session_state.shortlist_chart_png = _shortlist_gantt_png(gsrc, color_by=color_by)
+        g_all = build_singlebar_rows(gsrc)
+        if g_all.empty:
+            total = len(selected_df)
+            with_dates = selected_df["deadline"].notna().sum()
+            st.info(f"No valid date ranges for the current shortlist. (Selected: {total}; with any deadline: {with_dates})")
+            st.session_state.shortlist_chart_png = None
+        else:
+            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+            st.altair_chart(gantt_singlebar_chart(g_all, color_field=color_by), use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            # Build the PNG once for DOCX
+            st.session_state.shortlist_chart_png = _shortlist_gantt_png(gsrc, color_by=color_by)
 
-    # Optional: one Gantt per Horizon cluster (display-only)
-    if group_hz_clusters and not g_all.empty:
-        hz_only = gsrc[gsrc.get("programme").eq("Horizon Europe")]
-        if not hz_only.empty and "cluster" in hz_only.columns:
-            tmp = hz_only.copy()
-            tmp["cluster"] = tmp["cluster"].fillna("— Unspecified —").replace({"": "— Unspecified —"})
-            groups = list(tmp.groupby("cluster", dropna=False))
-            groups.sort(key=lambda kv: len(kv[1]), reverse=True)
-            st.caption(f"Horizon clusters in shortlist: {len(groups)}")
-            for clu_name, gdf in groups:
-                g_clu = build_singlebar_rows(gdf)
-                with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
-                    if g_clu.empty:
-                        st.info("No valid rows/dates for this cluster.")
-                    else:
-                        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-                        st.altair_chart(gantt_singlebar_chart(g_clu, color_field=color_by), use_container_width=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
+        # Optional: one Gantt per Horizon cluster (display-only)
+        if group_hz_clusters and not g_all.empty:
+            hz_only = gsrc[gsrc.get("programme").eq("Horizon Europe")]
+            if not hz_only.empty and "cluster" in hz_only.columns:
+                tmp = hz_only.copy()
+                tmp["cluster"] = tmp["cluster"].fillna("— Unspecified —").replace({"": "— Unspecified —"})
+                groups = list(tmp.groupby("cluster", dropna=False))
+                groups.sort(key=lambda kv: len(kv[1]), reverse=True)
+                st.caption(f"Horizon clusters in shortlist: {len(groups)}")
+                for clu_name, gdf in groups:
+                    g_clu = build_singlebar_rows(gdf)
+                    with st.expander(f"Cluster: {clu_name}  ({len(g_clu)} calls)", expanded=False):
+                        if g_clu.empty:
+                            st.info("No valid rows/dates for this cluster.")
+                        else:
+                            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+                            st.altair_chart(gantt_singlebar_chart(g_clu, color_field=color_by), use_container_width=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
 
     # Notes + DOCX
     if not selected_df.empty:
@@ -1046,7 +1012,7 @@ with tab_short:
             st.session_state.notes35[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note35_{code}")
 
         colA, _colB = st.columns(2)
-        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b4.0)")
+        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist (app_b4.1)")
 
         if st.button("📄 Generate DOCX"):
             try:
@@ -1055,7 +1021,7 @@ with tab_short:
                         selected_df,
                         st.session_state.notes35,
                         title=title,
-                        shortlist_gantt_png=st.session_state.shortlist_chart_png  # ★ NEW
+                        shortlist_gantt_png=st.session_state.shortlist_chart_png
                     )
                     st.download_button("⬇️ Download .docx", data=data,
                                        file_name="funding_report.docx",
