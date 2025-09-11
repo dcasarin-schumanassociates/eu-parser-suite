@@ -53,7 +53,11 @@ def editable_text(field_label: str, field_name: str, raw_text: str, code: str, k
 
 
 # -------------- Page Setup --------------
-st.set_page_config(page_title="Schuman · Funding Dashboard", page_icon="🟦", layout="wide")
+st.set_page_config(
+    page_title="Schuman · Funding Dashboard",
+    page_icon="assets/iconSA.png",  # path to your PNG file
+    layout="wide"
+)
 inject_brand_css()
 brand_header()
 
