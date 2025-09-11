@@ -353,14 +353,14 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
         x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
     )
     today_label = alt.Chart(today_df).mark_text(
-        align="left", baseline="top", dx=4, dy=-20, fontSize=11, fontWeight="bold", color="#1E4F86"
+        align="left", baseline="top", dx=4, dy=15, fontSize=11, fontWeight="bold", color="#1E4F86"
     ).encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: "%d %b %Y"'))
 
     y_order = g["y_label"].drop_duplicates().tolist()
     row_h = 46
     bar_size = int(row_h * 0.38)
-    domain_min = min(g["opening_date"].min(), today_ts)
-    domain_max = max(g["deadline"].max(), today_ts)
+    domain_min = min(g["opening_date"].min())
+    domain_max = max(g["deadline"].max())
 
     base = alt.Chart(g).encode(
         y=alt.Y("y_label:N", sort=y_order,
