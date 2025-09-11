@@ -131,7 +131,7 @@ with st.form("filters", clear_on_submit=False):
     with k2: kw2 = st.text_input("Keyword 2")
     with k3: kw3 = st.text_input("Keyword 3")
     with kmatch:
-    match_case = st.checkbox("Match case", value=False)
+        match_case = st.checkbox("Match case", value=False)
     with kcomb:
         kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)  # default OR
     with ktit:
