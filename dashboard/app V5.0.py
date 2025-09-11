@@ -184,18 +184,33 @@ def multi_keyword_filter(df: pd.DataFrame, terms, mode, title_code_only, match_c
     terms = [t.strip() for t in terms if t and str(t).strip()]
     if not terms:
         return df
-    # pick haystack depending on case sensitivity
+    # Split positive and negative terms
+    pos_terms = [t.lstrip("+") for t in terms if not t.startswith("-")]
+    neg_terms = [t[1:] for t in terms if t.startswith("-")]
+    # Pick haystack
     if title_code_only:
-        hay = df["_search_title_raw"] if match_case else df["_search_title"]
+        hay = df["_search_title_raw"] if match_case and "_search_title_raw" in df else df.get("_search_title", "")
     else:
-        hay = df["_search_all_raw"] if match_case else df["_search_all"]
+        hay = df["_search_all_raw"] if match_case and "_search_all_raw" in df else df.get("_search_all", "")
+    # Normalize for case-insensitive search
     if not match_case:
-        terms = [t.lower() for t in terms]
-    if mode.upper() == "AND":
-        pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
+        pos_terms = [t.lower() for t in pos_terms]
+        neg_terms = [t.lower() for t in neg_terms]
+        hay = hay.str.lower()
+    # Build regex for positives
+    if pos_terms:
+        if mode.upper() == "AND":
+            pos_pattern = "".join([f"(?=.*{re.escape(t)})" for t in pos_terms]) + ".*"
+        else:  # OR
+            pos_pattern = "(" + "|".join(re.escape(t) for t in pos_terms) + ")"
+        mask = hay.str.contains(pos_pattern, regex=True, na=False)
     else:
-        pattern = "(" + "|".join(re.escape(t) for t in terms) + ")"
-    return df[hay.str.contains(pattern, regex=True, na=False)]
+        mask = pd.Series(True, index=df.index)
+    # Apply negatives
+    for nt in neg_terms:
+        mask &= ~hay.str.contains(re.escape(nt), regex=True, na=False)
+    return df[mask]
+
 
 
 def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
