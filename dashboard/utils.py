@@ -4,7 +4,6 @@ import io, re, base64
 from datetime import datetime
 from typing import List, Dict, Optional, Iterable
 from pathlib import Path
-
 import pandas as pd
 import streamlit as st
 import altair as alt
@@ -12,7 +11,7 @@ import altair as alt
 # DOCX
 try:
     from docx import Document
-    from docx.shared import Pt, Inches, Cm,
+    from docx.shared import Pt, Inches, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     DOCX_AVAILABLE = True
 except Exception:
