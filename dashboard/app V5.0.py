@@ -366,17 +366,17 @@ with tab_full:
         if row.get("expected_outcome"):
             with st.expander("🎯 Expected Outcome"):
                 clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("expected_outcome")))))
-                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
+                st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
     
         if row.get("scope"):
             with st.expander("🧭 Scope"):
                 clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("scope")))))
-                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
+                st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
     
         if row.get("full_text"):
             with st.expander("📖 Full Description"):
                 clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("full_text")))))
-                st.markdown(highlight_text(clean_text, kw_list), unsafe_allow_html=True)
+                st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
     
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
