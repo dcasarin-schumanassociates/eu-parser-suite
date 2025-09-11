@@ -358,14 +358,14 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     month_labels_df["mid"] = month_labels_df["month"] + ((month_labels_df["next_month"] - month_labels_df["month"]) / 2)
     month_labels = alt.Chart(month_labels_df).mark_text(
         align="center", baseline="top", dy=0, fontSize=11, fontWeight="bold"
-    ).encode(x="mid:T", text="label:N", y=alt.value(0))
+    ).encode(x="mid:T", text=("label:N", format='Today: %b %YY') y=alt.value(0))
 
     today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
         x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
     )
     today_label = alt.Chart(today_df).mark_text(
         align="left", baseline="top", dx=4, dy=15, fontSize=11, fontWeight="bold", color="#1E4F86"
-    ).encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: "%d %b %Y"'))
+    ).encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: %d %b %Y'))
 
     y_order = g["y_label"].drop_duplicates().tolist()
     row_h = 46
