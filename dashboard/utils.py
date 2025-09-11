@@ -328,6 +328,10 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 
     min_x = min(g["opening_date"].min(), g["deadline"].min())
     max_x = max(g["opening_date"].max(), g["deadline"].max())
+
+    today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
+    today_df = pd.DataFrame({"t":[today_ts]})
+    
     # ensure today is included in domain
     domain_min = min(g["opening_date"].min(), today_ts)
     domain_max = max(g["deadline"].max(), today_ts)
@@ -356,8 +360,6 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
         align="center", baseline="top", dy=0, fontSize=11, fontWeight="bold"
     ).encode(x="mid:T", text="label:N", y=alt.value(0))
 
-    today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
-    today_df = pd.DataFrame({"t":[today_ts]})
     today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
         x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
     )
