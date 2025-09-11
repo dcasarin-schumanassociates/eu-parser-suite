@@ -359,7 +359,8 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     month_labels = alt.Chart(month_labels_df).mark_text(
         align="center", baseline="top", dy=0, fontSize=11, fontWeight="bold"
     ).encode(x="mid:T", text="label:N", y=alt.value(0))
-        today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
+    
+    today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
             x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
         )
 
