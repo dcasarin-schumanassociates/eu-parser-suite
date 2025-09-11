@@ -12,3 +12,4 @@ tabulate>=0.9.0
 python-docx>=0.8.11
 matplotlib
 altair-saver
+vl-convert-python
