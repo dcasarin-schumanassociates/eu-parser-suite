@@ -504,13 +504,25 @@ with tab_short:
         if g_all.empty:
             total = len(selected_df)
             with_dates = selected_df["deadline"].notna().sum()
-            st.info(f"No valid date ranges for the current shortlist. (Selected: {total}; with any deadline: {with_dates})")
-            gantt_png = None
+            st.info(
+                f"No valid date ranges for the current shortlist. "
+                f"(Selected: {total}; with any deadline: {with_dates})"
+            )
+            st.session_state.shortlist_chart_png = None
         else:
+            chart = gantt_singlebar_chart(g_all, color_field=color_by)
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.altair_chart(gantt_singlebar_chart(g_all, color_field=color_by), use_container_width=True)
+            st.altair_chart(chart, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-            gantt_png = shortlist_gantt_png(gsrc, color_by=color_by)
+    
+            # Save Altair chart to PNG (requires vl-convert or altair-saver)
+            try:
+                png_bytes = chart.save(None, format="png")
+                st.session_state.shortlist_chart_png = png_bytes
+            except Exception as e:
+                st.warning(f"Could not export Gantt as PNG: {e}")
+                st.session_state.shortlist_chart_png = None
+
 
     # Notes + Title + DOCX
     if not selected_df.empty:
