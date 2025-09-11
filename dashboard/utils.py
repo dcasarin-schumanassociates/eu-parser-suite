@@ -224,9 +224,22 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     present = [c for c in ("code","title","call_name","expected_outcome","scope","full_text",
                            "cluster","destination","type_of_action","trl","managing_authority","key_action")
                if c in df.columns]
-    df["_search_all"]   = df[present].astype(str).agg(" ".join, axis=1).str.lower() if present else ""
+    if present:
+        # Case-insensitive version (lowercase)
+        df["_search_all"] = df[present].astype(str).agg(" ".join, axis=1).str.lower()
+        # Case-sensitive version (raw)
+        df["_search_all_raw"] = df[present].astype(str).agg(" ".join, axis=1)
+    else:
+        df["_search_all"] = ""
+        df["_search_all_raw"] = ""
+
     title_cols = [c for c in ["code","title"] if c in df.columns]
-    df["_search_title"] = df[title_cols].astype(str).agg(" ".join, axis=1).str.lower() if title_cols else ""
+    if title_cols:
+        df["_search_title"] = df[title_cols].astype(str).agg(" ".join, axis=1).str.lower()
+        df["_search_title_raw"] = df[title_cols].astype(str).agg(" ".join, axis=1)
+    else:
+        df["_search_title"] = ""
+        df["_search_title_raw"] = ""
 
     close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in df.columns]
     if close_cols:
@@ -237,6 +250,7 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     df["deadline_year"] = df["deadline"].dt.year
 
     return df
+
 
 # ---------- Caching: load sheets ----------
 @st.cache_data(show_spinner=False)
