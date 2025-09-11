@@ -126,7 +126,7 @@ with st.form("filters", clear_on_submit=False):
         budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
 
     # Row 3: keywords + combine + title/code toggle
-    k1, k2, k3, kcomb, ktit, kmatch = st.columns([2,2,2,1,1.2])
+    k1, k2, k3, kcomb, ktit, kmatch = st.columns([2,2,2,1,1.2,1.2])
     with k1: kw1 = st.text_input("Keyword 1")
     with k2: kw2 = st.text_input("Keyword 2")
     with k3: kw3 = st.text_input("Keyword 3")
