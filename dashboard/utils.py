@@ -359,7 +359,8 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     y_order = g["y_label"].drop_duplicates().tolist()
     row_h = 46
     bar_size = int(row_h * 0.38)
-    domain_min, domain_max = g["opening_date"].min(), g["deadline"].max()
+    domain_min = min(g["opening_date"].min(), today_ts)
+    domain_max = max(g["deadline"].max(), today_ts)
 
     base = alt.Chart(g).encode(
         y=alt.Y("y_label:N", sort=y_order,
