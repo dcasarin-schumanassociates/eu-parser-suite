@@ -181,26 +181,21 @@ ensure_shortlist_state()
 # Apply filters
 def multi_keyword_filter(df: pd.DataFrame, terms, mode, title_code_only, match_case: bool = False):
     import re
-
     terms = [t.strip() for t in terms if t and str(t).strip()]
     if not terms:
         return df
-
+    # pick haystack depending on case sensitivity
     if title_code_only:
         hay = df["_search_title_raw"] if match_case else df["_search_title"]
     else:
         hay = df["_search_all_raw"] if match_case else df["_search_all"]
-
     if not match_case:
         terms = [t.lower() for t in terms]
-
     if mode.upper() == "AND":
         pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
     else:
         pattern = "(" + "|".join(re.escape(t) for t in terms) + ")"
-
     return df[hay.str.contains(pattern, regex=True, na=False)]
-
 
 
 def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
