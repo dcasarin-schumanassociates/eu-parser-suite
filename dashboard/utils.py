@@ -112,7 +112,7 @@ def brand_header():
       text-align: center;
       box-shadow: var(--sa-shadow, 0 6px 24px rgba(23,32,84,0.08));">
       {'<img src="'+logo_src+'" alt="Schuman Associates" style="height:60px; margin-bottom:12px;" />' if logo_src else ''}
-      <div style="font-size:20px; font-weight:700; margin-bottom:4px;"> · Funding Dashboard</div>
+      <div style="font-size:20px; font-weight:700; margin-bottom:4px;"> · Funding Dashboard · </div>
     </div>
     """, unsafe_allow_html=True)
 
