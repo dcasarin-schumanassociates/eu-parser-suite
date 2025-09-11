@@ -328,15 +328,24 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 
     min_x = min(g["opening_date"].min(), g["deadline"].min())
     max_x = max(g["opening_date"].max(), g["deadline"].max())
-    bands_df = build_month_bands(min_x, max_x)
+    # ensure today is included in domain
+    domain_min = min(g["opening_date"].min(), today_ts)
+    domain_max = max(g["deadline"].max(), today_ts)
+    
+    bands_df = build_month_bands(domain_min, domain_max)
 
+    months = pd.date_range(
+    pd.Timestamp(domain_min).to_period("M").start_time,
+    pd.Timestamp(domain_max).to_period("M").end_time,
+    freq="MS"
+    )
+    
     month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
         x="start:T", x2="end:T",
         opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.05]), legend=None),
         color=alt.value("#1E4F86")
     )
-    months = pd.date_range(pd.Timestamp(min_x).to_period("M").start_time,
-                           pd.Timestamp(max_x).to_period("M").end_time, freq="MS")
+    
     month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#1E4F86", strokeWidth=0.3).encode(x="t:T")
     month_labels_df = pd.DataFrame({
         "month": months[:-1], "next_month": months[1:],
@@ -359,8 +368,8 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     y_order = g["y_label"].drop_duplicates().tolist()
     row_h = 46
     bar_size = int(row_h * 0.38)
-    domain_min = min(g["opening_date"].min())
-    domain_max = max(g["deadline"].max())
+    domain_min = min(g["opening_date"].min(), today_ts)
+    domain_max = max(g["deadline"].max(), today_ts)
 
     base = alt.Chart(g).encode(
         y=alt.Y("y_label:N", sort=y_order,
