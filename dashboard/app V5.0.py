@@ -515,14 +515,17 @@ with tab_short:
             st.altair_chart(chart, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
     
-            # Save Altair chart to PNG (requires vl-convert or altair-saver)
+          
+            # Save Altair chart to PNG (try Altair → fallback to matplotlib)
             try:
-                png_bytes = chart.save(None, format="png")
-                st.session_state.shortlist_chart_png = png_bytes
+                import io
+                buf = io.BytesIO()
+                chart.save(buf, format="png")   # requires vl-convert-python
+                st.session_state.shortlist_chart_png = buf.getvalue()
             except Exception as e:
-                st.warning(f"Could not export Gantt as PNG: {e}")
-                st.session_state.shortlist_chart_png = None
-
+                st.warning(f"Altair export failed ({e}), using matplotlib fallback.")
+                st.session_state.shortlist_chart_png = shortlist_gantt_png(gsrc, color_by=color_by)
+            
 
     # Notes + Title + DOCX
     if not selected_df.empty:
