@@ -563,8 +563,8 @@ def generate_docx_report(
     # Insert shortlist Gantt chart if provided
     if shortlist_gantt_png:
         doc.add_heading("Shortlist Gantt", level=1)
-        doc.add_picture(io.BytesIO(shortlist_gantt_png), width=Inches(6.5))
-        doc.add_page_break()
+        #doc.add_picture(io.BytesIO(shortlist_gantt_png), width=Inches(6.5))
+        #doc.add_page_break()
 
     # Summary table
     table = doc.add_table(rows=1, cols=5)
