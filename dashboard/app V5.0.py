@@ -11,7 +11,7 @@ from utils import (
     inject_brand_css, brand_header,
 
     # load/canonicalise
-    get_sheet_names, load_programme,
+    get_sheet_names, load_programme, canonicalise
 
     # cleaning & text utils
     normalize_bullets, clean_footer, strip_and_collect_footnotes,
