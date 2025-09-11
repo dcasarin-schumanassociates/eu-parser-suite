@@ -126,10 +126,12 @@ with st.form("filters", clear_on_submit=False):
         budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
 
     # Row 3: keywords + combine + title/code toggle
-    k1, k2, k3, kcomb, ktit = st.columns([2,2,2,1,1.2])
+    k1, k2, k3, kcomb, ktit, kmatch = st.columns([2,2,2,1,1.2])
     with k1: kw1 = st.text_input("Keyword 1")
     with k2: kw2 = st.text_input("Keyword 2")
     with k3: kw3 = st.text_input("Keyword 3")
+    with kmatch:
+    match_case = st.checkbox("Match case", value=False)
     with kcomb:
         kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)  # default OR
     with ktit:
@@ -165,7 +167,7 @@ if "crit35" not in st.session_state:
 if applied or not st.session_state.crit35:
     st.session_state.crit35 = dict(
         open_years=open_year_sel, deadline_years=deadline_year_sel,
-        types=types_sel, kws=[kw1,kw2,kw3], kw_mode=kw_mode, title_code_only=title_code_only,
+        types=types_sel, kws=[kw1,kw2,kw3], kw_mode=kw_mode, title_code_only=title_code_only, match_case=match_case,
         budget_range=budget_range,
         clusters=clusters_sel, dests=dests_sel, trls=trls_sel,
         managing_authority=ma_sel, key_action=ka_sel,
@@ -177,18 +179,26 @@ crit = st.session_state.crit35
 ensure_shortlist_state()
 
 # Apply filters
-def multi_keyword_filter(df: pd.DataFrame, terms, mode, title_code_only):
-    terms = [t.strip().lower() for t in terms if t and str(t).strip()]
+def multi_keyword_filter(df: pd.DataFrame, terms, mode, title_code_only, match_case: bool = False):
+    import re
+
+    # prep terms
+    terms = [t.strip() for t in terms if t and str(t).strip()]
     if not terms:
         return df
     hay = df["_search_title"] if title_code_only else df["_search_all"]
+    if not match_case:
+        # normalize everything to lowercase for case-insensitive match
+        hay = hay.str.lower()
+        terms = [t.lower() for t in terms]
+
+    # build regex
     if mode.upper() == "AND":
-        import re
         pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
     else:
-        import re
         pattern = "(" + "|".join(re.escape(t) for t in terms) + ")"
     return df[hay.str.contains(pattern, regex=True, na=False)]
+
 
 def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
     df = df0.copy()
