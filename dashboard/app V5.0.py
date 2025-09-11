@@ -26,7 +26,7 @@ from utils import (
     guard_large_render, DISPLAY_COLS,
 
     # report
-    generate_docx_report,
+    generate_docx_report,DOCX_AVAILABLE,
 )
 
 def editable_text(field_label: str, field_name: str, raw_text: str, code: str, kw_list: list[str], height: int = 180):
@@ -216,7 +216,9 @@ def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
         df = df[df.get("type_of_action").isin(crit["types"])]
     lo, hi = crit["budget_range"]
     df = df[df.get("budget_per_project_eur").fillna(0).between(lo, hi)]
-    df = multi_keyword_filter(df, crit["kws"], crit["kw_mode"], crit["title_code_only"])
+    df = multi_keyword_filter(
+        df, crit["kws"], crit["kw_mode"], crit["title_code_only"], crit.get("match_case", False)
+    )
     return df
 
 def apply_horizon_filters(df0: pd.DataFrame) -> pd.DataFrame:
