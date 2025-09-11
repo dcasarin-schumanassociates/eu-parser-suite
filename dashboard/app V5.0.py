@@ -186,17 +186,14 @@ def multi_keyword_filter(df: pd.DataFrame, terms, mode, title_code_only, match_c
     if not terms:
         return df
 
-    # Choose haystack depending on match_case
     if title_code_only:
         hay = df["_search_title_raw"] if match_case else df["_search_title"]
     else:
         hay = df["_search_all_raw"] if match_case else df["_search_all"]
 
-    # If insensitive, normalize terms too
     if not match_case:
         terms = [t.lower() for t in terms]
 
-    # Build regex
     if mode.upper() == "AND":
         pattern = "".join([f"(?=.*{re.escape(t)})" for t in terms]) + ".*"
     else:
