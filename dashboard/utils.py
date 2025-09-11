@@ -12,7 +12,7 @@ import altair as alt
 # DOCX
 try:
     from docx import Document
-    from docx.shared import Pt, Inches
+    from docx.shared import Pt, Inches, Cm,
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     DOCX_AVAILABLE = True
 except Exception:
@@ -544,58 +544,77 @@ def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
                 df.at[idx, field] = val
 
 # ---------- Report ----------
-def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: Dict[str,str], title="Funding Report",
-                         shortlist_gantt_png: Optional[bytes] = None) -> bytes:
+def generate_docx_report(
+    calls_df: pd.DataFrame,
+    notes_by_code: Dict[str, str],
+    title: str = "Funding Report",
+    shortlist_gantt_png: bytes | None = None
+) -> bytes:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx not installed")
-    doc = Document()
-    h = doc.add_heading(title, level=0); h.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p = doc.add_paragraph(f"Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}"); p.runs[0].font.size = Pt(9)
 
-    # Include shortlist Gantt image if provided
+    doc = Document()
+    # Title
+    h = doc.add_heading(title, level=0)
+    h.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    p = doc.add_paragraph(f"Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}")
+    p.runs[0].font.size = Pt(9)
+
+    # Insert shortlist Gantt chart if provided
     if shortlist_gantt_png:
         doc.add_heading("Shortlist Gantt", level=1)
         doc.add_picture(io.BytesIO(shortlist_gantt_png), width=Inches(6.5))
+        doc.add_page_break()
 
-    table = doc.add_table(rows=1, cols=5); hdr = table.rows[0].cells
-    for i, t in enumerate(["Programme","Code","Title","Opening","Deadline"]): hdr[i].text = t
+    # Summary table
+    table = doc.add_table(rows=1, cols=5)
+    hdr = table.rows[0].cells
+    for i, t in enumerate(["Programme", "Code", "Title", "Opening", "Deadline"]):
+        hdr[i].text = t
+
     for _, r in calls_df.iterrows():
         row = table.add_row().cells
-        row[0].text = str(r.get("programme","")); row[1].text = str(r.get("code","")); row[2].text = str(r.get("title",""))
+        row[0].text = str(r.get("programme", ""))
+        row[1].text = str(r.get("code", ""))
+        row[2].text = str(r.get("title", ""))
         op, dl = r.get("opening_date"), r.get("deadline")
         row[3].text = op.strftime("%d %b %Y") if pd.notna(op) else "-"
         row[4].text = dl.strftime("%d %b %Y") if pd.notna(dl) else "-"
 
+    # Detailed sections
     for _, r in calls_df.iterrows():
         doc.add_page_break()
         doc.add_heading(f"{r.get('code','')} — {r.get('title','')}", level=1)
+
         lines = []
         lines.append(f"Programme: {r.get('programme','-')}")
         lines.append(f"Cluster: {r.get('cluster','-')}")
-        lines.append(f"Destination: {r.get('destination','-')}")
+        lines.append(f"Destination: {r.get('destination_or_strand', r.get('destination','-'))}")
         lines.append(f"Type of Action: {r.get('type_of_action','-')}")
-        trl_val = r.get("trl"); lines.append(f"TRL: {int(trl_val) if pd.notna(trl_val) else '-'}")
-        ma = r.get("managing_authority"); ka = r.get("key_action")
+
+        trl_val = r.get("trl")
+        lines.append(f"TRL: {int(trl_val) if pd.notna(trl_val) else '-'}")
+
+        ma = r.get("managing_authority")
+        ka = r.get("key_action")
         if pd.notna(ma) or pd.notna(ka):
             lines.append(f"Managing Authority: {ma if pd.notna(ma) else '-'}")
             lines.append(f"Key Action: {ka if pd.notna(ka) else '-'}")
+
         op, dl = r.get("opening_date"), r.get("deadline")
         lines.append(f"Opening: {op:%d %b %Y}" if pd.notna(op) else "Opening: -")
         lines.append(f"Deadline: {dl:%d %b %Y}" if pd.notna(dl) else "Deadline: -")
+
         doc.add_paragraph("\n".join(lines))
 
-        # Include edited texts if any
-        for field, label in [
-            ("expected_outcome","Expected Outcome"),
-            ("scope","Scope"),
-            ("full_text","Full Description"),
-        ]:
-            val = str(r.get(field) or "").strip()
-            if val:
-                doc.add_heading(label, level=2)
-                doc.add_paragraph(val)
+        # Notes section
+        notes = (notes_by_code or {}).get(str(r.get("code", "")), "")
+        doc.add_heading("Notes", level=2)
+        doc.add_paragraph(notes if notes else "-")
 
-        notes = (notes_by_code or {}).get(str(r.get("code","")), "")
-        doc.add_heading("Notes", level=2); doc.add_paragraph(notes if notes else "-")
+    bio = io.BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
 
-    bio = io.BytesIO(); doc.save(bio); bio.seek(0); return bio.getvalue()
