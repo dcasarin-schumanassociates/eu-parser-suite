@@ -217,7 +217,10 @@ def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
     lo, hi = crit["budget_range"]
     df = df[df.get("budget_per_project_eur").fillna(0).between(lo, hi)]
     df = multi_keyword_filter(
-        df, crit["kws"], crit["kw_mode"], crit["title_code_only"], crit.get("match_case", False)
+        df, crit["kws"],
+        crit["kw_mode"],
+        crit["title_code_only"],
+        crit.get("match_case", False)
     )
     return df
 
