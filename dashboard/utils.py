@@ -324,7 +324,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     })
     month_labels_df["mid"] = month_labels_df["month"] + ((month_labels_df["next_month"] - month_labels_df["month"]) / 2)
     month_labels = alt.Chart(month_labels_df).mark_text(
-        align="center", baseline="top", dy=0, fontSize=12, fontWeight="bold"
+        align="center", baseline="top", dy=0, fontSize=11, fontWeight="bold"
     ).encode(x="mid:T", text="label:N", y=alt.value(0))
 
     today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
