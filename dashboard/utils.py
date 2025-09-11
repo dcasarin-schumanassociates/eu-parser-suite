@@ -127,12 +127,13 @@ def nl_to_br(s: str) -> str:
     return "" if not s else s.replace("\n", "<br>")
 
 
-def highlight_text(text: str, keywords: list[str], colours=None) -> str:
+def highlight_text(text: str, keywords: list[str], colours=None, match_case: bool = False) -> str:
     """
     Wrap keywords in <span> with background colour + bold.
     - text: input string
-    - keywords: list of terms to highlight (case-insensitive)
+    - keywords: list of terms to highlight
     - colours: list of colours to cycle through
+    - match_case: if True, highlight case-sensitively; otherwise case-insensitive
     """
     import re
 
@@ -149,13 +150,15 @@ def highlight_text(text: str, keywords: list[str], colours=None) -> str:
     out = str(text)
     for i, kw in enumerate(kws):
         colour = colours[i % len(colours)]
+        flags = 0 if match_case else re.IGNORECASE
         out = re.sub(
             re.escape(kw),
             lambda m: f"<span style='background-color:{colour}; font-weight:bold;'>{m.group(0)}</span>",
             out,
-            flags=re.IGNORECASE,
+            flags=flags,
         )
     return out
+
 
 def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
     """In-place: apply text edits from session_state to df, if present."""
@@ -221,26 +224,30 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     else:
         df["two_stage"] = False
 
-    present = [c for c in ("code","title","call_name","expected_outcome","scope","full_text",
-                           "cluster","destination","type_of_action","trl","managing_authority","key_action")
-               if c in df.columns]
+    # --- searchable fields ---
+    present = [c for c in (
+        "code","title","call_name","expected_outcome","scope","full_text",
+        "cluster","destination","type_of_action","trl","managing_authority","key_action"
+    ) if c in df.columns]
+
     if present:
-        # Case-insensitive version (lowercase)
-        df["_search_all"] = df[present].astype(str).agg(" ".join, axis=1).str.lower()
-        # Case-sensitive version (raw)
-        df["_search_all_raw"] = df[present].astype(str).agg(" ".join, axis=1)
+        joined = df[present].astype(str).agg(" ".join, axis=1)
+        df["_search_all"] = joined.str.lower()
+        df["_search_all_raw"] = joined
     else:
         df["_search_all"] = ""
-        df["_search_all_raw"] = ""
+        df["_search_all_raw"] = ""   # ensure always present
 
     title_cols = [c for c in ["code","title"] if c in df.columns]
     if title_cols:
-        df["_search_title"] = df[title_cols].astype(str).agg(" ".join, axis=1).str.lower()
-        df["_search_title_raw"] = df[title_cols].astype(str).agg(" ".join, axis=1)
+        joined_titles = df[title_cols].astype(str).agg(" ".join, axis=1)
+        df["_search_title"] = joined_titles.str.lower()
+        df["_search_title_raw"] = joined_titles
     else:
         df["_search_title"] = ""
-        df["_search_title_raw"] = ""
+        df["_search_title_raw"] = ""   # ensure always present
 
+    # --- dates ---
     close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in df.columns]
     if close_cols:
         df["closing_date_any"] = pd.to_datetime(df[close_cols].stack(), errors="coerce").groupby(level=0).min()
@@ -250,7 +257,6 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     df["deadline_year"] = df["deadline"].dt.year
 
     return df
-
 
 # ---------- Caching: load sheets ----------
 @st.cache_data(show_spinner=False)
