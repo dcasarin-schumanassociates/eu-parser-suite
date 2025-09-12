@@ -163,7 +163,7 @@ with st.form("filters", clear_on_submit=False):
     
     # Horizon-specific (left)
     with col_HEU:
-        st.subheader("Horizon Filters")
+        st.subheader("Horizon")
         heu_col1, heu_col2, heu_col3 = st.columns(3)
         with heu_col1:
             clusters_sel = st.multiselect("Cluster", cluster_opts)
@@ -174,7 +174,7 @@ with st.form("filters", clear_on_submit=False):
     
     # Erasmus-specific (right)
     with col_ER:
-        st.subheader("Erasmus+ Filters")
+        st.subheader("Erasmus+")
         er_col1, er_col2 = st.columns(2)
         with er_col1:
             ma_sel = st.multiselect("Managing Authority", ma_opts)
