@@ -122,17 +122,13 @@ with st.form("filters", clear_on_submit=False):
     with col_dy:
         deadline_year_sel = st.multiselect("Deadline year(s)", deadline_years)
     
-    # Inside col_open
-    left, mid, right = st.columns([1,2,1])
-    with mid:
-        st.write("### Open calls only")  # centered label
+    with col_open:
         open_calls_only = st.checkbox(
-            " ",  # hide the text label
+            "Open calls only",
             value=False,
             help="Keep only entries whose final Deadline is strictly after today (Europe/Brussels)."
         )
-
-    
+   
     with col_bud:
         budget_range = st.slider(
             "Budget per project (EUR)",
@@ -143,8 +139,7 @@ with st.form("filters", clear_on_submit=False):
     
     with col_type:
         types_sel = st.multiselect("Type of Action", type_opts)
-    
-    
+        
     # ----------------
     # Row 2: keywords + combine + title/code toggle
     # ----------------
