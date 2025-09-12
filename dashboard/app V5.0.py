@@ -72,7 +72,7 @@ upl = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
 if not upl:
     st.stop()
 
-Detect sheets and allow override
+# Detect sheets and allow override
 sheets = get_sheet_names(upl.getvalue())
 c1, c2 = st.columns(2)
 with c1:
