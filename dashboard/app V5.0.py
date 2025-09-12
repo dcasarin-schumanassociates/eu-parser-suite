@@ -159,7 +159,7 @@ with st.form("filters", clear_on_submit=False):
         title_code_only = st.checkbox("Title/Code only", value=False)          # default off
 
     # Two main columns: Horizon Europe and Erasmus+
-    col_HEU, col_ER = st.columns([3, 2])  # Horizon wider than Erasmus
+    col_HEU, col_ER = st.columns([4, 2])  # Horizon wider than Erasmus
     
     # Horizon-specific (left)
     with col_HEU:
