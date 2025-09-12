@@ -158,28 +158,23 @@ with st.form("filters", clear_on_submit=False):
     with ktit:
         title_code_only = st.checkbox("Title/Code only", value=False)          # default off
 
-    # Two main columns: Horizon Europe and Erasmus+
-    col_HEU, col_ER = st.columns([4, 2])  # Horizon wider than Erasmus
+    # Horizon-specific
+    st.subheader("Horizon-specific")
+    h1, h2, h3 = st.columns(3)
+    with h1:
+        clusters_sel = st.multiselect("Cluster", cluster_opts)
+    with h2:
+        dests_sel = st.multiselect("Destination", dest_opts)
+    with h3:
+        trls_sel = st.multiselect("TRL", trl_opts)
     
-    # Horizon-specific (left)
-    with col_HEU:
-        st.subheader("Horizon")
-        heu_col1, heu_col2, heu_col3 = st.columns(3)
-        with heu_col1:
-            clusters_sel = st.multiselect("Cluster", cluster_opts)
-        with heu_col2:
-            dests_sel = st.multiselect("Destination", dest_opts)
-        with heu_col3:
-            trls_sel = st.multiselect("TRL", trl_opts)
-    
-    # Erasmus-specific (right)
-    with col_ER:
-        st.subheader("Erasmus+")
-        er_col1, er_col2 = st.columns(2)
-        with er_col1:
-            ma_sel = st.multiselect("Managing Authority", ma_opts)
-        with er_col2:
-            ka_sel = st.multiselect("Key Action", ka_opts)
+    # Erasmus-specific
+    st.subheader("Erasmus+-specific")
+    e1, e2 = st.columns(2)
+    with e1:
+        ma_sel = st.multiselect("Managing Authority", ma_opts)
+    with e2:
+        ka_sel = st.multiselect("Key Action", ka_opts)
     
     applied = st.form_submit_button("Apply filters")
 
