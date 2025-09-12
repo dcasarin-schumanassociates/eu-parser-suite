@@ -73,12 +73,12 @@ if not upl:
     st.stop()
 
 # Detect sheets and allow override
-#sheets = get_sheet_names(upl.getvalue())
+sheets = get_sheet_names(upl.getvalue())
 #c1, c2 = st.columns(2)
 #with c1:
-    #hz_sheet = st.selectbox("Horizon Database", options=sheets, index=0)
+hz_sheet = st.selectbox("Horizon Database", options=sheets, index=0)
 #with c2:
-    #er_sheet = st.selectbox("Erasmus Database", options=sheets, index=min(1, len(sheets)-1))
+er_sheet = st.selectbox("Erasmus Database", options=sheets, index=min(1, len(sheets)-1))
 
 # Load each programme independently
 df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe", _ver=1)
