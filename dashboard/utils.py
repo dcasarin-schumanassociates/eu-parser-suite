@@ -97,20 +97,19 @@ def inject_brand_css():
     st.markdown(f"<style>\n{font_css}\n{theme_css}\n</style>", unsafe_allow_html=True)
 
 def brand_header():
-    """Top hero header with brand blue and logo."""
+    """Top hero header with no background colour and blue logo."""
+    # Force using the blue logo
     logo_src = None
-    for p in (LOGO_WHITE, LOGO_GREY, LOGO_BLUE):
-        if p.exists():
-            logo_src = f"data:image/png;base64,{_file_to_base64(p)}"
-            break
+    if LOGO_BLUE.exists():
+        logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_BLUE)}"
+
     st.markdown(f"""
     <div style="
       border-radius: 16px;
-      background: var(--sa-primary, #1E4F86);
+      background: transparent;  /* no colour */
       padding: 24px 20px;
-      color: white;
-      text-align: center;
-      box-shadow: var(--sa-shadow, 0 6px 24px rgba(23,32,84,0.08));">
+      color: var(--sa-ink, #0F172A); /* dark ink for text */
+      text-align: center;">
       {'<img src="'+logo_src+'" alt="Schuman Associates" style="height:60px; margin-bottom:12px;" />' if logo_src else ''}
       <div style="font-size:20px; font-weight:700; margin-bottom:4px;"> · Funding Dashboard · </div>
     </div>
