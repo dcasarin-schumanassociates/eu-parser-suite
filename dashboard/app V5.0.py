@@ -144,19 +144,29 @@ with st.form("filters", clear_on_submit=False):
     # Row 4: type of action
     types_sel = st.multiselect("Type of Action", type_opts)
 
-    # Horizon-specific
-    st.subheader("Horizon-specific")
-    h1,h2,h3 = st.columns(3)
-    with h1: clusters_sel = st.multiselect("Cluster", cluster_opts)
-    with h2: dests_sel    = st.multiselect("Destination", dest_opts)
-    with h3: trls_sel     = st.multiselect("TRL", trl_opts)
-
-    # Erasmus-specific
-    st.subheader("Erasmus+-specific")
-    e1,e2 = st.columns(2)
-    with e1: ma_sel = st.multiselect("Managing Authority", ma_opts)
-    with e2: ka_sel = st.multiselect("Key Action", ka_opts)
-
+    # Two main columns: Horizon Europe and Erasmus+
+    col_HEU, col_ER = st.columns([3, 2])  # Horizon wider than Erasmus
+    
+    # Horizon-specific (left)
+    with col_HEU:
+        st.subheader("Horizon-specific")
+        heu_col1, heu_col2, heu_col3 = st.columns(3)
+        with heu_col1:
+            clusters_sel = st.multiselect("Cluster", cluster_opts)
+        with heu_col2:
+            dests_sel = st.multiselect("Destination", dest_opts)
+        with heu_col3:
+            trls_sel = st.multiselect("TRL", trl_opts)
+    
+    # Erasmus-specific (right)
+    with col_ER:
+        st.subheader("Erasmus+-specific")
+        er_col1, er_col2 = st.columns(2)
+        with er_col1:
+            ma_sel = st.multiselect("Managing Authority", ma_opts)
+        with er_col2:
+            ka_sel = st.multiselect("Key Action", ka_opts)
+    
     applied = st.form_submit_button("Apply filters")
 
 # Welcome/empty state
