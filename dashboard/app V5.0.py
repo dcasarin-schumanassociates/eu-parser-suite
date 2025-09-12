@@ -122,12 +122,16 @@ with st.form("filters", clear_on_submit=False):
     with col_dy:
         deadline_year_sel = st.multiselect("Deadline year(s)", deadline_years)
     
-    with col_open:
+    # Inside col_open
+    left, mid, right = st.columns([1,2,1])
+    with mid:
+        st.write("### Open calls only")  # centered label
         open_calls_only = st.checkbox(
-            "Open calls only",
+            " ",  # hide the text label
             value=False,
             help="Keep only entries whose final Deadline is strictly after today (Europe/Brussels)."
         )
+
     
     with col_bud:
         budget_range = st.slider(
