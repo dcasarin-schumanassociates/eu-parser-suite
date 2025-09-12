@@ -88,3 +88,41 @@ div[role="listbox"] * {
 /* Inputs - roundness + data tables */
 .stMultiSelect, .stSelectbox, .stTextInput, .stSlider { border-radius: var(--sa-radius) !important; }
 .stDataFrame, .stTable { font-size: .94rem; }
+
+/* Inputs - roundness + borders + data tables */
+.stMultiSelect, .stSelectbox, .stTextInput, .stSlider { 
+  border-radius: var(--sa-radius) !important; 
+}
+
+/* Text-based inputs */
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea {
+  border: 1.5px solid var(--sa-border);
+  border-radius: var(--sa-radius);
+  padding: 6px 10px;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stTextArea textarea:focus {
+  border-color: var(--sa-primary-600);
+  box-shadow: 0 0 0 2px rgba(30,79,134,0.15);
+  outline: none;
+}
+
+/* Dropdowns and multiselects */
+.stMultiSelect, .stSelectbox {
+  border: 1.5px solid var(--sa-border);
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.stMultiSelect:focus-within,
+.stSelectbox:focus-within {
+  border-color: var(--sa-primary-600);
+  box-shadow: 0 0 0 2px rgba(30,79,134,0.15);
+}
+
+/* Tables */
+.stDataFrame, .stTable { font-size: .94rem; }
