@@ -111,38 +111,59 @@ step = max(1e4, round(rng / 50, -3)) if rng else 10000.0
 with st.form("filters", clear_on_submit=False):
     st.header("Filters")
 
-    # Row 1: opening, deadline, open calls
-    col_oy, col_dy, col_open = st.columns([1,1,1])
+    # ----------------
+    # Row 1: opening, deadline, open calls, budget, type of action
+    # ----------------
+    col_oy, col_dy, col_open, col_bud, col_type = st.columns([1,1,1,2,2])
+    
     with col_oy:
         open_year_sel = st.multiselect("Opening year(s)", opening_years)
+    
     with col_dy:
         deadline_year_sel = st.multiselect("Deadline year(s)", deadline_years)
+    
     with col_open:
         open_calls_only = st.checkbox(
             "Open calls only",
             value=False,
             help="Keep only entries whose final Deadline is strictly after today (Europe/Brussels)."
         )
-
-    # Row 2: budget
-    col_bud, _sp = st.columns([2,1])
+    
     with col_bud:
-        budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
-
-    # Row 3: keywords + combine + title/code toggle
+        budget_range = st.slider(
+            "Budget per project (EUR)",
+            min_bud, max_bud,
+            (min_bud, max_bud),
+            step=step
+        )
+    
+    with col_type:
+        types_sel = st.multiselect("Type of Action", type_opts)
+    
+    
+    # ----------------
+    # Row 2: keywords + combine + title/code toggle
+    # ----------------
     k1, k2, k3, kcomb, ktit, kmatch = st.columns([2,2,2,1,1.2,1.2])
-    with k1: kw1 = st.text_input("Keyword 1")
-    with k2: kw2 = st.text_input("Keyword 2")
-    with k3: kw3 = st.text_input("Keyword 3")
+    
+    with k1:
+        kw1 = st.text_input("Keyword 1")
+    
+    with k2:
+        kw2 = st.text_input("Keyword 2")
+    
+    with k3:
+        kw3 = st.text_input("Keyword 3")
+    
     with kmatch:
         match_case = st.checkbox("Match case", value=False)
+    
     with kcomb:
         kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)  # default OR
+    
     with ktit:
         title_code_only = st.checkbox("Title/Code only", value=False)          # default off
 
-    # Row 4: type of action
-    types_sel = st.multiselect("Type of Action", type_opts)
 
     # Two main columns: Horizon Europe and Erasmus+
     col_HEU, col_ER = st.columns([3, 2])  # Horizon wider than Erasmus
