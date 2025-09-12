@@ -147,30 +147,24 @@ with st.form("filters", clear_on_submit=False):
     k1, k2, k3, kcomb, ktit, kmatch = st.columns([2,2,2,1,1.2,1.2])
     
     with k1:
-        kw1 = st.text_input("Keyword 1")
-    
+        kw1 = st.text_input("Keyword 1")    
     with k2:
-        kw2 = st.text_input("Keyword 2")
-    
+        kw2 = st.text_input("Keyword 2")    
     with k3:
-        kw3 = st.text_input("Keyword 3")
-    
+        kw3 = st.text_input("Keyword 3")    
     with kmatch:
-        match_case = st.checkbox("Match case", value=False)
-    
+        match_case = st.checkbox("Match case", value=False)    
     with kcomb:
-        kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)  # default OR
-    
+        kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)  # default OR    
     with ktit:
         title_code_only = st.checkbox("Title/Code only", value=False)          # default off
 
-
     # Two main columns: Horizon Europe and Erasmus+
-    col_HEU, col_ER = st.columns([3, 2])  # Horizon wider than Erasmus
+    col_HEU, col_ER = st.columns([2, 2])  # Horizon wider than Erasmus
     
     # Horizon-specific (left)
     with col_HEU:
-        st.subheader("Horizon-specific")
+        st.subheader("Horizon Filters")
         heu_col1, heu_col2, heu_col3 = st.columns(3)
         with heu_col1:
             clusters_sel = st.multiselect("Cluster", cluster_opts)
@@ -181,7 +175,7 @@ with st.form("filters", clear_on_submit=False):
     
     # Erasmus-specific (right)
     with col_ER:
-        st.subheader("Erasmus+-specific")
+        st.subheader("Erasmus+ Filters")
         er_col1, er_col2 = st.columns(2)
         with er_col1:
             ma_sel = st.multiselect("Managing Authority", ma_opts)
