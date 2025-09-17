@@ -618,3 +618,22 @@ def generate_docx_report(
     doc.save(bio)
     bio.seek(0)
     return bio.getvalue()
+
+
+
+def clean_export_text(text: str) -> str:
+    if not text:
+        return ""
+    # Remove word-wrap hyphens
+    text = re.sub(r"-\n", "", text)
+    # Replace non-breaking spaces
+    text = text.replace("\xa0", " ")
+    # Collapse single newlines into spaces, keep double newlines
+    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+    # Collapse multiple spaces
+    text = re.sub(r"[ \t]+", " ", text)
+    # Trim extra newlines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    # Remove common footer artifacts
+    text = re.sub(r"Page\s*\|\s*\d+", "", text)
+    return text.strip()
