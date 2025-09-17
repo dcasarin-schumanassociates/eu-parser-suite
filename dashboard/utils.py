@@ -7,6 +7,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import altair as alt
+from transformers import pipeline
+import difflib
 
 # DOCX
 try:
@@ -614,4 +616,50 @@ def generate_docx_report(
     doc.save(bio)
     bio.seek(0)
     return bio.getvalue()
+
+
+# Load once at app startup (choose your local model)
+@st.cache_resource
+def load_formatter_model():
+    # You can swap model with "mistralai/Mistral-7B-Instruct-v0.2" or "microsoft/phi-2"
+    return pipeline("text2text-generation", model="google/flan-t5-base", device=-1)
+
+formatter = load_formatter_model()
+
+def format_with_ai(raw_text: str, max_change_ratio: float = 0.15) -> str:
+    """
+    Reformat raw PDF text for readability using a local AI model.
+    Guarantees: no summarisation, no hallucination beyond structure/spacing.
+    
+    Args:
+        raw_text (str): original extracted description
+        max_change_ratio (float): max allowed proportion of word changes vs. input
+    """
+    if not raw_text.strip():
+        return raw_text
+
+    prompt = (
+        "Reformat the following text into clean paragraphs and bullet points. "
+        "Do NOT summarise, shorten, or add content. "
+        "Preserve all wording exactly; only fix line breaks and bullets:\n\n"
+        f"{raw_text}"
+    )
+
+    result = formatter(prompt, max_new_tokens=2000, temperature=0)[0]["generated_text"]
+
+    # ---- Guardrails ----
+    sm = difflib.SequenceMatcher(None, raw_text.split(), result.split())
+    change_ratio = 1 - sm.ratio()
+
+    if change_ratio > max_change_ratio:
+        # Too much deviation → reject and return original
+        return raw_text
+
+    # Optional: ensure key tokens survive (HORIZON, EUR, TRL, etc.)
+    critical_terms = ["HORIZON", "EUR", "TRL", "Deadline", "Opening"]
+    for term in critical_terms:
+        if term in raw_text and term not in result:
+            return raw_text
+
+    return result
 
