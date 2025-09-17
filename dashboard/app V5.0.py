@@ -27,9 +27,6 @@ from utils import (
 
     # report
     generate_docx_report,DOCX_AVAILABLE,
-
-    #AI 
-    load_formatter_model, format_with_ai,
 )
 
 def editable_text(field_label: str, field_name: str, raw_text: str, code: str, kw_list: list[str], height: int = 180):
@@ -416,21 +413,8 @@ with tab_full:
     
         if row.get("full_text"):
             with st.expander("📖 Full Description"):
-                code = str(row.get("code") or "")
-                raw_text = str(row.get("full_text") or "")
-                clean_text = nl_to_br(normalize_bullets(clean_footer(raw_text)))
-                
-                # Display formatted version if available
-                formatted = st.session_state.get("formatted_descriptions", {}).get(code, clean_text)
-                st.markdown(highlight_text(formatted, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
-        
-        if st.checkbox("✨ Improve formatting (AI)", key=f"format_ai_{code}"):
-            if "formatted_descriptions" not in st.session_state:
-                st.session_state.formatted_descriptions = {}
-            if code not in st.session_state.formatted_descriptions:
-                # Only run AI once per checkbox activation
-                new_text = format_with_ai(raw_text)
-                st.session_state.formatted_descriptions[code] = new_text
+                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("full_text")))))
+                st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
     
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
