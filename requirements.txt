@@ -13,7 +13,3 @@ python-docx>=0.8.11
 matplotlib
 altair-saver
 vl-convert-python
-transformers
-torch
-accelerate
-sentencepiece
