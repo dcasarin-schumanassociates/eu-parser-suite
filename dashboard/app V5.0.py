@@ -574,7 +574,6 @@ with tab_short:
                         export_df,
                         st.session_state.notes35,
                         title=title,
-                        shortlist_gantt_png=st.session_state.shortlist_chart_png
                     )
                     st.download_button("⬇️ Download .docx", data=data,
                                        file_name="funding_report.docx",
