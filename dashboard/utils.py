@@ -542,11 +542,11 @@ def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
 
 
 
-# ---------- Report ----------
 def generate_docx_report(
     calls_df: pd.DataFrame,
     notes_by_code: Dict[str, str],
-    title: str = "Funding Report"
+    title: str = "Funding Report",
+    shortlist_gantt_png: bytes | None = None  # ignored for compatibility
 ) -> bytes:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx not installed")
@@ -555,21 +555,15 @@ def generate_docx_report(
     from docx.enum.section import WD_ORIENT, WD_SECTION_START
 
     template_path = os.path.join("assets", "report_template.docx")
-    doc = Document(template_path)   # load your template cover page
+    doc = Document(template_path)   # template contains blue header + white logo
 
-    # --- Replace placeholders in template cover page ---
-    for p in doc.paragraphs:
-        if "{{TITLE}}" in p.text:
-            p.text = p.text.replace("{{TITLE}}", title)
-        if "{{DATE}}" in p.text:
-            p.text = p.text.replace("{{DATE}}", datetime.utcnow().strftime("%d %b %Y, %H:%M UTC"))
-
-    # --- Summary section (landscape) ---
-    sec = doc.add_section(WD_SECTION_START.NEW_PAGE)
+    # --- First section: Landscape summary ---
+    sec = doc.sections[-1]
     sec.orientation = WD_ORIENT.LANDSCAPE
     sec.page_width, sec.page_height = sec.page_height, sec.page_width
 
-    doc.add_heading("Summary of Calls", level=1)
+    doc.add_heading(title, level=0)
+
     table = doc.add_table(rows=1, cols=5, style="Table Grid")
     hdr = table.rows[0].cells
     for i, t in enumerate(["Programme", "Code", "Title", "Opening", "Deadline"]):
@@ -584,61 +578,43 @@ def generate_docx_report(
         row[3].text = op.strftime("%d %b %Y") if pd.notna(op) else "-"
         row[4].text = dl.strftime("%d %b %Y") if pd.notna(dl) else "-"
 
-    # --- Detailed sections (per call) ---
+    # --- Second section: Portrait details ---
+    sec = doc.add_section(WD_SECTION_START.NEW_PAGE)
+    sec.orientation = WD_ORIENT.PORTRAIT
+    sec.page_width, sec.page_height = sec.page_height, sec.page_width
+
     for _, r in calls_df.iterrows():
-        doc.add_section(WD_SECTION_START.NEW_PAGE)  # portrait section per call
+        doc.add_section(WD_SECTION_START.NEW_PAGE)
         doc.add_heading(f"{r.get('code','')} — {r.get('title','')}", level=1)
 
+        # metadata
         lines = []
         lines.append(f"Programme: {r.get('programme','-')}")
         lines.append(f"Cluster: {r.get('cluster','-')}")
         lines.append(f"Destination: {r.get('destination_or_strand', r.get('destination','-'))}")
         lines.append(f"Type of Action: {r.get('type_of_action','-')}")
-
         trl_val = r.get("trl")
         lines.append(f"TRL: {int(trl_val) if pd.notna(trl_val) else '-'}")
-
-        ma = r.get("managing_authority")
-        ka = r.get("key_action")
-        if pd.notna(ma) or pd.notna(ka):
-            lines.append(f"Managing Authority: {ma if pd.notna(ma) else '-'}")
-            lines.append(f"Key Action: {ka if pd.notna(ka) else '-'}")
-
         op, dl = r.get("opening_date"), r.get("deadline")
         lines.append(f"Opening: {op:%d %b %Y}" if pd.notna(op) else "Opening: -")
         lines.append(f"Deadline: {dl:%d %b %Y}" if pd.notna(dl) else "Deadline: -")
-
-        # Multi-stage deadlines
-        first_dl, second_dl = r.get("first_deadline"), r.get("second_deadline")
-        if r.get("two_stage"):
-            lines.append(f"Stage 1: {first_dl:%d %b %Y}" if pd.notna(first_dl) else "Stage 1: -")
-            lines.append(f"Stage 2: {second_dl:%d %b %Y}" if pd.notna(second_dl) else "Stage 2: -")
-
-        bpp, tot, npj = r.get("budget_per_project_eur"), r.get("total_budget_eur"), r.get("num_projects")
-        lines.append(f"Budget per project: {bpp:,.0f} EUR" if pd.notna(bpp) else "Budget per project: -")
-        lines.append(f"Total budget: {tot:,.0f} EUR" if pd.notna(tot) else "Total budget: -")
-        lines.append(f"# Projects: {int(npj) if pd.notna(npj) else '-'}")
-
         doc.add_paragraph("\n".join(lines))
 
-        # Notes section
+        # notes
         notes = (notes_by_code or {}).get(str(r.get("code", "")), "")
         doc.add_heading("Notes", level=2)
         doc.add_paragraph(notes if notes else "-")
 
-        # Always include Expected Outcome and Scope
+        # always EO + Scope
         eo = str(r.get("expected_outcome") or "").strip()
         sc = str(r.get("scope") or "").strip()
-
         doc.add_heading("Expected Outcome", level=2)
         doc.add_paragraph(eo if eo else "-")
-
         doc.add_heading("Scope", level=2)
         doc.add_paragraph(sc if sc else "-")
 
-    # --- Return bytes ---
+    # return bytes
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio.getvalue()
-
