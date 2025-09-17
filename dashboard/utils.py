@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import altair as alt
+import transformers
 from transformers import pipeline
 import difflib
 
