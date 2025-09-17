@@ -642,7 +642,7 @@ def format_with_ai(raw_text: str, max_change_ratio: float = 0.15) -> str:
     prompt = (
         "Reformat the following text into clean paragraphs and bullet points. "
         "Do NOT summarise, shorten, or add content. "
-        "Preserve all wording exactly; only fix line breaks and bullets:\n\n"
+        "Only fix line breaks and bullets:\n\n"
         f"{raw_text}"
     )
 
