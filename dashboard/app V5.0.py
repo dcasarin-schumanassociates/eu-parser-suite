@@ -424,13 +424,13 @@ with tab_full:
                 formatted = st.session_state.get("formatted_descriptions", {}).get(code, clean_text)
                 st.markdown(highlight_text(formatted, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
         
-                # Checkbox to trigger AI formatting
-                if st.checkbox("✨ Improve formatting (AI)", key=f"format_ai_{code}"):
-                    new_text = format_with_ai(raw_text)
-                    if "formatted_descriptions" not in st.session_state:
-                        st.session_state.formatted_descriptions = {}
-                    st.session_state.formatted_descriptions[code] = new_text
-                    st.experimental_rerun()
+        if st.checkbox("✨ Improve formatting (AI)", key=f"format_ai_{code}"):
+            if "formatted_descriptions" not in st.session_state:
+                st.session_state.formatted_descriptions = {}
+            if code not in st.session_state.formatted_descriptions:
+                # Only run AI once per checkbox activation
+                new_text = format_with_ai(raw_text)
+                st.session_state.formatted_descriptions[code] = new_text
     
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
