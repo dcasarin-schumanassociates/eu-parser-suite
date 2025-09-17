@@ -13,3 +13,5 @@ python-docx>=0.8.11
 matplotlib
 altair-saver
 vl-convert-python
+transformers>=4.39.0
+torch>=2.1.0
