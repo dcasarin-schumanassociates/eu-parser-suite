@@ -27,6 +27,9 @@ from utils import (
 
     # report
     generate_docx_report,DOCX_AVAILABLE,
+
+    #AI 
+    load_formatter_model, format_with_ai,
 )
 
 def editable_text(field_label: str, field_name: str, raw_text: str, code: str, kw_list: list[str], height: int = 180):
