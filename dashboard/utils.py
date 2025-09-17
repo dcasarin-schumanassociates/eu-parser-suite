@@ -540,19 +540,24 @@ def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
             if isinstance(val, str) and val.strip():
                 df.at[idx, field] = val
 
-from docx import Document
-from docx.shared import Pt, Cm
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.section import WD_ORIENT, WD_SECTION_START
-import io, os
-import pandas as pd
-from datetime import datetime
 
-def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: dict, title="Funding Report") -> bytes:
+
+# ---------- Report ----------
+def generate_docx_report(
+    calls_df: pd.DataFrame,
+    notes_by_code: Dict[str, str],
+    title: str = "Funding Report"
+) -> bytes:
+    if not DOCX_AVAILABLE:
+        raise RuntimeError("python-docx not installed")
+
+    import os
+    from docx.enum.section import WD_ORIENT, WD_SECTION_START
+
     template_path = os.path.join("assets", "report_template.docx")
-    doc = Document(template_path)   # load your template
+    doc = Document(template_path)   # load your template cover page
 
-    # --- Cover page placeholders ---
+    # --- Replace placeholders in template cover page ---
     for p in doc.paragraphs:
         if "{{TITLE}}" in p.text:
             p.text = p.text.replace("{{TITLE}}", title)
@@ -565,57 +570,63 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: dict, title="Fun
     sec.page_width, sec.page_height = sec.page_height, sec.page_width
 
     doc.add_heading("Summary of Calls", level=1)
-    table = doc.add_table(rows=1, cols=4, style="Table Grid")
+    table = doc.add_table(rows=1, cols=5, style="Table Grid")
     hdr = table.rows[0].cells
-    for i, t in enumerate(["Code", "Title", "Opening", "Deadline"]):
+    for i, t in enumerate(["Programme", "Code", "Title", "Opening", "Deadline"]):
         hdr[i].text = t
 
     for _, r in calls_df.iterrows():
-        opening = r.get("opening_date")
-        deadline = r.get("deadline")
-        opening_s = opening.strftime("%d %b %Y") if pd.notna(opening) else "-"
-        deadline_s = deadline.strftime("%d %b %Y") if pd.notna(deadline) else "-"
         row = table.add_row().cells
-        row[0].text = str(r.get("code", ""))
-        row[1].text = str(r.get("title", ""))
-        row[2].text = opening_s
-        row[3].text = deadline_s
+        row[0].text = str(r.get("programme", ""))
+        row[1].text = str(r.get("code", ""))
+        row[2].text = str(r.get("title", ""))
+        op, dl = r.get("opening_date"), r.get("deadline")
+        row[3].text = op.strftime("%d %b %Y") if pd.notna(op) else "-"
+        row[4].text = dl.strftime("%d %b %Y") if pd.notna(dl) else "-"
 
-    # --- Detailed sections per call ---
+    # --- Detailed sections (per call) ---
     for _, r in calls_df.iterrows():
-        doc.add_section(WD_SECTION_START.NEW_PAGE)  # back to portrait
-        # (optional: reset orientation if template is portrait by default)
-
+        doc.add_section(WD_SECTION_START.NEW_PAGE)  # portrait section per call
         doc.add_heading(f"{r.get('code','')} — {r.get('title','')}", level=1)
 
         lines = []
         lines.append(f"Programme: {r.get('programme','-')}")
         lines.append(f"Cluster: {r.get('cluster','-')}")
-        lines.append(f"Destination: {r.get('destination_or_strand','-')}")
+        lines.append(f"Destination: {r.get('destination_or_strand', r.get('destination','-'))}")
         lines.append(f"Type of Action: {r.get('type_of_action','-')}")
+
         trl_val = r.get("trl")
         lines.append(f"TRL: {int(trl_val) if pd.notna(trl_val) else '-'}")
 
-        opening = r.get("opening_date"); deadline = r.get("deadline")
-        first_deadline = r.get("first_deadline"); second_deadline = r.get("second_deadline")
-        lines.append(f"Opening: {opening:%d %b %Y}" if pd.notna(opening) else "Opening: -")
-        lines.append(f"Deadline: {deadline:%d %b %Y}" if pd.notna(deadline) else "Deadline: -")
-        if r.get("two_stage"):
-            lines.append(f"Stage 1: {first_deadline:%d %b %Y}" if pd.notna(first_deadline) else "Stage 1: -")
-            lines.append(f"Stage 2: {second_deadline:%d %b %Y}" if pd.notna(second_deadline) else "Stage 2: -")
+        ma = r.get("managing_authority")
+        ka = r.get("key_action")
+        if pd.notna(ma) or pd.notna(ka):
+            lines.append(f"Managing Authority: {ma if pd.notna(ma) else '-'}")
+            lines.append(f"Key Action: {ka if pd.notna(ka) else '-'}")
 
-        bpp = r.get("budget_per_project_eur"); tot = r.get("total_budget_eur"); npj = r.get("num_projects")
+        op, dl = r.get("opening_date"), r.get("deadline")
+        lines.append(f"Opening: {op:%d %b %Y}" if pd.notna(op) else "Opening: -")
+        lines.append(f"Deadline: {dl:%d %b %Y}" if pd.notna(dl) else "Deadline: -")
+
+        # Multi-stage deadlines
+        first_dl, second_dl = r.get("first_deadline"), r.get("second_deadline")
+        if r.get("two_stage"):
+            lines.append(f"Stage 1: {first_dl:%d %b %Y}" if pd.notna(first_dl) else "Stage 1: -")
+            lines.append(f"Stage 2: {second_dl:%d %b %Y}" if pd.notna(second_dl) else "Stage 2: -")
+
+        bpp, tot, npj = r.get("budget_per_project_eur"), r.get("total_budget_eur"), r.get("num_projects")
         lines.append(f"Budget per project: {bpp:,.0f} EUR" if pd.notna(bpp) else "Budget per project: -")
         lines.append(f"Total budget: {tot:,.0f} EUR" if pd.notna(tot) else "Total budget: -")
         lines.append(f"# Projects: {int(npj) if pd.notna(npj) else '-'}")
 
         doc.add_paragraph("\n".join(lines))
 
-        notes = (notes_by_code or {}).get(str(r.get("code","")), "")
+        # Notes section
+        notes = (notes_by_code or {}).get(str(r.get("code", "")), "")
         doc.add_heading("Notes", level=2)
         doc.add_paragraph(notes if notes else "-")
 
-        # --- Always include Expected Outcome & Scope ---
+        # Always include Expected Outcome and Scope
         eo = str(r.get("expected_outcome") or "").strip()
         sc = str(r.get("scope") or "").strip()
 
@@ -625,8 +636,9 @@ def generate_docx_report(calls_df: pd.DataFrame, notes_by_code: dict, title="Fun
         doc.add_heading("Scope", level=2)
         doc.add_paragraph(sc if sc else "-")
 
-    # --- Return file ---
+    # --- Return bytes ---
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio.getvalue()
+
