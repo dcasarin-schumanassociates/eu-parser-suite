@@ -564,19 +564,30 @@ def generate_docx_report(
 
     doc.add_heading(title, level=0)
 
-    table = doc.add_table(rows=1, cols=5, style="Table Grid")
+    # Add 7 columns instead of 5
+    table = doc.add_table(rows=1, cols=7, style="Table Grid")
+    
     hdr = table.rows[0].cells
-    for i, t in enumerate(["Programme", "Code", "Title", "Opening", "Deadline"]):
+    headers = ["Programme", "Code", "Title", "Opening", "Deadline",
+               "Type of Action", "Budget per Project"]
+    
+    for i, t in enumerate(headers):
         hdr[i].text = t
-
+    
     for _, r in calls_df.iterrows():
         row = table.add_row().cells
         row[0].text = str(r.get("programme", ""))
         row[1].text = str(r.get("code", ""))
         row[2].text = str(r.get("title", ""))
+    
         op, dl = r.get("opening_date"), r.get("deadline")
         row[3].text = op.strftime("%d %b %Y") if pd.notna(op) else "-"
         row[4].text = dl.strftime("%d %b %Y") if pd.notna(dl) else "-"
+    
+        row[5].text = str(r.get("type_of_action", "-"))
+    
+        bpp = r.get("budget_per_project_eur")
+        row[6].text = f"{bpp:,.0f} EUR" if pd.notna(bpp) else "-"
 
     # --- Second section: Portrait details ---
     sec = doc.add_section(WD_SECTION_START.NEW_PAGE)
