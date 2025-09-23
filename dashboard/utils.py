@@ -184,11 +184,24 @@ def clean_footer(text: str) -> str:
 
 def normalize_bullets(text: str) -> str:
     """
-    Stub: do nothing, return text unchanged.
+    Replace common bullet characters at the start of lines with "- ".
+    Keep everything else intact, no aggressive substitutions.
     """
-    if not isinstance(text, str):
+    if not isinstance(text, str) or not text.strip():
         return ""
-    return text
+
+    # Normalize line endings
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Replace common bullet characters ONLY at start of line
+    bullet_pattern = re.compile(r"(?m)^[ \t]*([▪◦●•·*])\s+")
+    text = bullet_pattern.sub("- ", text)
+
+    # Replace numbered bullets like "1. " or "a) " at start of line
+    text = re.sub(r"(?m)^[ \t]*(\d+[\.\)])\s+", r"\1 ", text)
+    text = re.sub(r"(?m)^[ \t]*([A-Za-z][\.\)])\s+", r"\1 ", text)
+
+    return text.strip()
 
 
 def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
