@@ -385,7 +385,7 @@ with tab_full:
     
         if row.get("scope"):
             with st.expander("🧭 Scope"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("scope")))))
+                clean_text = normalize_bullets(clean_footer(str(row.get("scope"))))
                 st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
     
         if row.get("full_text"):
