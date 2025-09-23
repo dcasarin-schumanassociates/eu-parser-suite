@@ -118,11 +118,19 @@ def brand_header():
 # ---------- Text utils ----------
 
 def nl_to_br(s: str) -> str:
-    """
-    Replace newline characters with <br> for safe HTML rendering.
-    """
-    return "" if not s else s.replace("\n", "<br>")
-
+    if not s:
+        return ""
+    # Normalize line endings
+    text = s.replace("\r\n", "\n").replace("\r", "\n")
+    
+    # Collapse multiple newlines into a paragraph break
+    text = re.sub(r"\n{2,}", "<br><br>", text)
+    
+    # For single newlines: replace with space, unless preceded by punctuation
+    text = re.sub(r"(?<![.!?])\n(?!\n)", " ", text)  # join lines
+    text = re.sub(r"([.!?])\n", r"\1<br>", text)     # keep break after sentence
+    
+    return text
 
 def highlight_text(text: str, keywords: list[str], colours=None, match_case: bool = False) -> str:
     """
