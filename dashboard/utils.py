@@ -548,6 +548,25 @@ def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
             if isinstance(val, str) and val.strip():
                 df.at[idx, field] = val
 
+import io
+import re
+import pandas as pd
+from typing import Dict
+from docx import Document
+from docx.shared import Cm
+from docx.enum.section import WD_ORIENT, WD_SECTION_START
+
+def prepare_for_docx(text: str) -> list[str]:
+    """Collapse soft line breaks and split into clean paragraphs."""
+    if not text:
+        return []
+    # Collapse single newlines into spaces
+    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+    # Normalize multiple blank lines into paragraph breaks
+    text = re.sub(r"\n{2,}", "\n\n", text)
+    # Split into paragraphs
+    return [p.strip() for p in text.split("\n\n") if p.strip()]
+
 def generate_docx_report(
     calls_df: pd.DataFrame,
     notes_by_code: Dict[str, str],
@@ -558,8 +577,6 @@ def generate_docx_report(
         raise RuntimeError("python-docx not installed")
 
     import os
-    from docx.enum.section import WD_ORIENT, WD_SECTION_START
-
     template_path = os.path.join("assets", "report_template.docx")
     doc = Document(template_path)   # template contains blue header + white logo
 
@@ -572,26 +589,24 @@ def generate_docx_report(
 
     # Add 7 columns instead of 5
     table = doc.add_table(rows=1, cols=7, style="Table Grid")
-    
     hdr = table.rows[0].cells
     headers = ["Programme", "Code", "Title", "Opening", "Deadline",
                "Type of Action", "Budget per Project"]
-    
     for i, t in enumerate(headers):
         hdr[i].text = t
-    
+
     for _, r in calls_df.iterrows():
         row = table.add_row().cells
         row[0].text = str(r.get("programme", ""))
         row[1].text = str(r.get("code", ""))
         row[2].text = str(r.get("title", ""))
-    
+
         op, dl = r.get("opening_date"), r.get("deadline")
         row[3].text = op.strftime("%d %b %Y") if pd.notna(op) else "-"
         row[4].text = dl.strftime("%d %b %Y") if pd.notna(dl) else "-"
-    
+
         row[5].text = str(r.get("type_of_action", "-"))
-    
+
         bpp = r.get("budget_per_project_eur")
         row[6].text = f"{bpp:,.0f} EUR" if pd.notna(bpp) else "-"
 
@@ -622,19 +637,30 @@ def generate_docx_report(
         doc.add_heading("Notes", level=2)
         doc.add_paragraph(notes if notes else "-")
 
-        # always EO + Scope
+        # Expected Outcome
         eo = str(r.get("expected_outcome") or "").strip()
-        sc = str(r.get("scope") or "").strip()
         doc.add_heading("Expected Outcome", level=2)
-        doc.add_paragraph(eo if eo else "-")
+        if eo:
+            for para in prepare_for_docx(eo):
+                doc.add_paragraph(para)
+        else:
+            doc.add_paragraph("-")
+
+        # Scope
+        sc = str(r.get("scope") or "").strip()
         doc.add_heading("Scope", level=2)
-        doc.add_paragraph(sc if sc else "-")
+        if sc:
+            for para in prepare_for_docx(sc):
+                doc.add_paragraph(para)
+        else:
+            doc.add_paragraph("-")
 
     # return bytes
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio.getvalue()
+
 
 
 
