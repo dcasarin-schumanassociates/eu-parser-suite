@@ -1,5 +1,6 @@
-# app.py — Streamlit Funding Dashboard (Schuman-branded, 2-file version)
+# app.py — Streamlit Funding Dashboard (Schuman-branded, reformed 2-file version)
 from __future__ import annotations
+
 import io
 from typing import List
 import pandas as pd
@@ -26,13 +27,13 @@ from utils import (
     guard_large_render, DISPLAY_COLS,
 
     # report
-    generate_docx_report,DOCX_AVAILABLE,
+    generate_docx_report, DOCX_AVAILABLE,
 )
 
-# -------------- Page Setup --------------
+# -------- Page Setup --------
 st.set_page_config(
     page_title="Schuman · Funding Dashboard",
-    page_icon="assets/iconSA.png",  # path to your PNG file
+    page_icon="assets/iconSA.png",
     layout="wide"
 )
 inject_brand_css()
@@ -62,7 +63,7 @@ df_h = load_programme(upl.getvalue(), hz_sheet, "Horizon Europe", _ver=1)
 df_e = load_programme(upl.getvalue(), er_sheet, "Erasmus+",      _ver=1)
 
 # ------- Build filter choices -------
-all_df = pd.concat([df_h, df_e], ignore_index=True)  # programme already set
+all_df = pd.concat([df_h, df_e], ignore_index=True)
 opening_years  = sorted([int(y) for y in all_df["opening_year"].dropna().unique()])
 deadline_years = sorted([int(y) for y in all_df["deadline_year"].dropna().unique()])
 type_opts      = sorted([t for t in all_df.get("type_of_action", pd.Series(dtype=object)).dropna().unique().tolist() if t!=""])
@@ -88,52 +89,34 @@ step = max(1e4, round(rng / 50, -3)) if rng else 10000.0
 with st.form("filters", clear_on_submit=False):
     st.header("Filters")
 
-    # ----------------
-    # Row 1: opening, deadline, open calls, budget, type of action
-    # ----------------
+    # Row 1
     col_oy, col_dy, col_open, col_bud, col_type = st.columns([1,1,1,2,2])
-    
     with col_oy:
         open_year_sel = st.multiselect("Opening year(s)", opening_years)
-    
     with col_dy:
         deadline_year_sel = st.multiselect("Deadline year(s)", deadline_years)
-    
     with col_open:
         open_calls_only = st.checkbox(
             "Open calls only",
             value=False,
             help="Keep only entries whose final Deadline is strictly after today (Europe/Brussels)."
         )
-   
     with col_bud:
-        budget_range = st.slider(
-            "Budget per project (EUR)",
-            min_bud, max_bud,
-            (min_bud, max_bud),
-            step=step
-        )
-    
+        budget_range = st.slider("Budget per project (EUR)", min_bud, max_bud, (min_bud, max_bud), step=step)
     with col_type:
         types_sel = st.multiselect("Type of Action", type_opts)
-        
-    # ----------------
-    # Row 2: keywords + combine + title/code toggle
-    # ----------------
+
+    # Row 2: keywords
     k1, k2, k3, kcomb, ktit, kmatch = st.columns([2,2,2,1,1.2,1.2])
-    
-    with k1:
-        kw1 = st.text_input("Keyword 1")    
-    with k2:
-        kw2 = st.text_input("Keyword 2")    
-    with k3:
-        kw3 = st.text_input("Keyword 3")    
+    with k1:   kw1 = st.text_input("Keyword 1")
+    with k2:   kw2 = st.text_input("Keyword 2")
+    with k3:   kw3 = st.text_input("Keyword 3")
     with kmatch:
-        match_case = st.checkbox("Match case", value=False)    
+        match_case = st.checkbox("Match case", value=False)
     with kcomb:
-        kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)  # default OR    
+        kw_mode = st.radio("Combine", ["AND","OR"], index=1, horizontal=True)
     with ktit:
-        title_code_only = st.checkbox("Title/Code only", value=False)          # default off
+        title_code_only = st.checkbox("Title/Code only", value=False)
 
     # Horizon-specific
     st.subheader("Horizon-specific")
@@ -144,7 +127,7 @@ with st.form("filters", clear_on_submit=False):
         dests_sel = st.multiselect("Destination", dest_opts)
     with h3:
         trls_sel = st.multiselect("TRL", trl_opts)
-    
+
     # Erasmus-specific
     st.subheader("Erasmus+-specific")
     e1, e2 = st.columns(2)
@@ -152,16 +135,15 @@ with st.form("filters", clear_on_submit=False):
         ma_sel = st.multiselect("Managing Authority", ma_opts)
     with e2:
         ka_sel = st.multiselect("Key Action", ka_opts)
-    
+
     applied = st.form_submit_button("Apply filters")
 
-# Welcome/empty state
+# Persist criteria / applied flag
 if "has_applied" not in st.session_state:
     st.session_state.has_applied = False
 if applied:
     st.session_state.has_applied = True
 
-# Persist criteria
 if "crit35" not in st.session_state:
     st.session_state.crit35 = {}
 if applied or not st.session_state.crit35:
@@ -173,45 +155,49 @@ if applied or not st.session_state.crit35:
         managing_authority=ma_sel, key_action=ka_sel,
         open_calls_only=open_calls_only
     )
+
 crit = st.session_state.crit35
 
-# Shortlist/session state
+# -------- Shortlist/session state --------
 ensure_shortlist_state()
 
-# Apply filters
+# -------- Filtering helpers --------
 def multi_keyword_filter(df: pd.DataFrame, terms, mode, title_code_only, match_case: bool = False):
-    import re
+    """
+    Supports negatives with leading '-' (e.g., 'battery -hydrogen').
+    Uses regex-safe escaping; optional case sensitivity.
+    """
     terms = [t.strip() for t in terms if t and str(t).strip()]
     if not terms:
         return df
-    # Split positive and negative terms
+
     pos_terms = [t.lstrip("+") for t in terms if not t.startswith("-")]
     neg_terms = [t[1:] for t in terms if t.startswith("-")]
+
     # Pick haystack
     if title_code_only:
         hay = df["_search_title_raw"] if match_case and "_search_title_raw" in df else df.get("_search_title", "")
     else:
         hay = df["_search_all_raw"] if match_case and "_search_all_raw" in df else df.get("_search_all", "")
-    # Normalize for case-insensitive search
     if not match_case:
         pos_terms = [t.lower() for t in pos_terms]
         neg_terms = [t.lower() for t in neg_terms]
         hay = hay.str.lower()
-    # Build regex for positives
+
+    # Positives
     if pos_terms:
         if mode.upper() == "AND":
             pos_pattern = "".join([f"(?=.*{re.escape(t)})" for t in pos_terms]) + ".*"
-        else:  # OR
+        else:
             pos_pattern = "(" + "|".join(re.escape(t) for t in pos_terms) + ")"
         mask = hay.str.contains(pos_pattern, regex=True, na=False)
     else:
         mask = pd.Series(True, index=df.index)
-    # Apply negatives
+
+    # Negatives
     for nt in neg_terms:
         mask &= ~hay.str.contains(re.escape(nt), regex=True, na=False)
     return df[mask]
-
-
 
 def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
     df = df0.copy()
@@ -226,33 +212,32 @@ def apply_common_filters(df0: pd.DataFrame) -> pd.DataFrame:
         df = df[df.get("type_of_action").isin(crit["types"])]
     lo, hi = crit["budget_range"]
     df = df[df.get("budget_per_project_eur").fillna(0).between(lo, hi)]
-    df = multi_keyword_filter(
-        df, crit["kws"],
-        crit["kw_mode"],
-        crit["title_code_only"],
-        crit.get("match_case", False)
-    )
+    df = multi_keyword_filter(df, crit["kws"], crit["kw_mode"], crit["title_code_only"], crit.get("match_case", False))
     return df
 
 def apply_horizon_filters(df0: pd.DataFrame) -> pd.DataFrame:
     df = apply_common_filters(df0)
-    if crit["clusters"]: df = df[df.get("cluster").isin(crit["clusters"])]
-    if crit["dests"]:    df = df[df.get("destination").isin(crit["dests"])]
+    if crit["clusters"]:
+        df = df[df.get("cluster").isin(crit["clusters"])]
+    if crit["dests"]:
+        df = df[df.get("destination").isin(crit["dests"])]
     if crit["trls"]:
         df = df[df.get("trl").dropna().astype("Int64").astype(str).isin(crit["trls"])]
     return df
 
 def apply_erasmus_filters(df0: pd.DataFrame) -> pd.DataFrame:
     df = apply_common_filters(df0)
-    if crit["managing_authority"]: df = df[df.get("managing_authority").isin(crit["managing_authority"])]
-    if crit["key_action"]:         df = df[df.get("key_action").isin(crit["key_action"])]
+    if crit["managing_authority"]:
+        df = df[df.get("managing_authority").isin(crit["managing_authority"])]
+    if crit["key_action"]:
+        df = df[df.get("key_action").isin(crit["key_action"])]
     return df
 
 fh = apply_horizon_filters(df_h)
 fe = apply_erasmus_filters(df_e)
 st.caption(f"Rows after filters — Horizon: {len(fh)} | Erasmus: {len(fe)}")
 
-# Early exit if not applied yet
+# Early exit if filters not applied yet
 if not st.session_state.has_applied:
     st.markdown(
         """
@@ -263,18 +248,14 @@ if not st.session_state.has_applied:
     )
     st.stop()
 
-# ------------------------------ Tabs ------------------------------
+# -------- Tabs --------
 tab_hz, tab_er, tab_tbl, tab_full, tab_short = st.tabs([
     "📅 Gantt — Horizon", "📅 Gantt — Erasmus", "📋 Tables", "📚 Full Data", "📝 Shortlist"
 ])
 
 with tab_hz:
     st.subheader("Gantt — Horizon Europe (Opening → Deadline)")
-    group_by_cluster = st.checkbox(
-        "Group by cluster (render one Gantt per cluster)",
-        value=False,
-        help="When enabled, the Horizon chart is split into one dropdown per Cluster."
-    )
+    group_by_cluster = st.checkbox("Group by cluster (one Gantt per cluster)", value=False)
     if not group_by_cluster:
         if guard_large_render(fh, "Horizon Gantt"):
             g_h = build_singlebar_rows(fh)
@@ -309,7 +290,8 @@ with tab_er:
     st.subheader("Gantt — Erasmus+ (Opening → Deadline)")
     if guard_large_render(fe, "Erasmus Gantt"):
         g_e = build_singlebar_rows(fe)
-        if g_e.empty: st.info("No valid Erasmus rows/dates.")
+        if g_e.empty:
+            st.info("No valid Erasmus rows/dates.")
         else:
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
             st.altair_chart(gantt_singlebar_chart(g_e, color_field="type_of_action"), use_container_width=True)
@@ -328,8 +310,10 @@ with tab_tbl:
             page = st.number_input("Page", 1, max_page, 1, 1, key=f"pg_{label}")
         start = (page-1)*page_size
         end = start + page_size
-        st.dataframe(df[cols].iloc[start:end], use_container_width=True, hide_index=True)
-        st.caption(f"Showing {min(end, len(df))}/{len(df)}")
+        # show sorted by deadline desc by default for predictability
+        df_sorted = df.sort_values(["deadline","opening_date"], ascending=[True, True], na_position="last")
+        st.dataframe(df_sorted[cols].iloc[start:end], use_container_width=True, hide_index=True)
+        st.caption(f"Showing {min(end, len(df_sorted))}/{len(df_sorted)}")
 
     show_cols_h = [c for c in DISPLAY_COLS if c in fh.columns]
     show_cols_e = [c for c in DISPLAY_COLS if c in fe.columns]
@@ -343,9 +327,9 @@ with tab_tbl:
 with tab_full:
     st.subheader("Full Data — Expand rows for details")
 
-    # get active keywords from filters for highlighting
     kw_list = crit.get("kws", [])
-                       
+    whole_word = False  # set True if you want strict word-bound highlights
+
     def render_row(row, programme: str):
         c1, c2 = st.columns(2)
         with c1:
@@ -360,7 +344,7 @@ with tab_full:
                 st.markdown(f"📦 **Total:** {row['total_budget_eur']:,.0f} EUR")
             if pd.notna(row.get("num_projects")):
                 st.markdown(f"📊 **# Projects:** {int(row['num_projects'])}")
-    
+
         meta_bits = [
             f"🏷️ **Programme:** {programme}",
             f"**Type of Action:** {row.get('type_of_action','-')}",
@@ -377,38 +361,45 @@ with tab_full:
                 f"**Key Action:** {row.get('key_action','-')}",
             ]
         st.markdown(" | ".join(meta_bits))
-    
+
         if row.get("expected_outcome"):
             with st.expander("🎯 Expected Outcome"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("expected_outcome")))))
-                st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
-    
+                clean_text = normalize_bullets(clean_footer(str(row.get("expected_outcome"))))
+                html = nl_to_br(clean_text)
+                st.markdown(
+                    highlight_text(html, kw_list, match_case=crit.get("match_case", False), whole_word=whole_word),
+                    unsafe_allow_html=True
+                )
+
         if row.get("scope"):
             with st.expander("🧭 Scope"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("scope")))))
-                st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
-    
+                clean_text = normalize_bullets(clean_footer(str(row.get("scope"))))
+                html = nl_to_br(clean_text)
+                st.markdown(
+                    highlight_text(html, kw_list, match_case=crit.get("match_case", False), whole_word=whole_word),
+                    unsafe_allow_html=True
+                )
+
         if row.get("full_text"):
             with st.expander("📖 Full Description"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("full_text")))))
-                st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
-    
+                clean_text = normalize_bullets(clean_footer(str(row.get("full_text"))))
+                html = nl_to_br(clean_text)
+                st.markdown(
+                    highlight_text(html, kw_list, match_case=crit.get("match_case", False), whole_word=whole_word),
+                    unsafe_allow_html=True
+                )
+
         st.caption(
             f"📂 Source: {row.get('source_filename','-')} "
             f"| Version: {row.get('version_label','-')} "
             f"| Parsed on: {row.get('parsed_on_utc','-')}"
         )
 
-
     # ----- HORIZON -----
     st.markdown(f"### Horizon Europe ({len(fh)})")
     if not guard_large_render(fh, "Full Data — Horizon"):
         st.stop()
-    group_hz = st.checkbox(
-        "Group Horizon by Cluster (dropdowns)",
-        value=False,
-        help="Show one expander per Cluster; inside each, expand rows for details."
-    )
+    group_hz = st.checkbox("Group Horizon by Cluster (dropdowns)", value=False)
     if len(fh) == 0:
         st.caption("— no Horizon rows after filters —")
     else:
@@ -416,10 +407,7 @@ with tab_full:
             for i, r in fh.iterrows():
                 label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
                 code = str(r.get("code") or f"id-{i}")
-                render_shortlist_row(
-                    label, code,
-                    lambda rr=r: render_row(rr, "Horizon Europe")
-                )
+                render_shortlist_row(label, code, lambda rr=r: render_row(rr, "Horizon Europe"))
         else:
             tmp = fh.copy()
             tmp["cluster"] = tmp.get("cluster").fillna("— Unspecified —").replace({"": "— Unspecified —"})
@@ -427,15 +415,11 @@ with tab_full:
             groups.sort(key=lambda kv: len(kv[1]), reverse=True)
             st.caption(f"Clusters found: {len(groups)}")
             for clu_name, gdf in groups:
-                disp = str(clu_name)
-                with st.expander(f"Cluster: {disp}  ({len(gdf)} calls)", expanded=False):
+                with st.expander(f"Cluster: {str(clu_name)}  ({len(gdf)} calls)", expanded=False):
                     for i, r in gdf.iterrows():
                         label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
                         code = str(r.get("code") or f"id-{i}")
-                        render_shortlist_row(
-                            label, code,
-                            lambda rr=r: render_row(rr, "Horizon Europe")
-                        )
+                        render_shortlist_row(label, code, lambda rr=r: render_row(rr, "Horizon Europe"))
 
     # ----- ERASMUS -----
     st.markdown(f"### Erasmus+ ({len(fe)})")
@@ -447,10 +431,7 @@ with tab_full:
         for i, r in fe.iterrows():
             label = f"{str(r.get('code') or '')} — {str(r.get('title') or '')}".strip(" —")
             code = str(r.get("code") or f"id-{i}")
-            render_shortlist_row(
-                label, code,
-                lambda rr=r: render_row(rr, "Erasmus+")
-            )
+            render_shortlist_row(label, code, lambda rr=r: render_row(rr, "Erasmus+"))
 
 with tab_short:
     st.subheader("Shortlist & Notes (DOCX)")
@@ -466,13 +447,10 @@ with tab_short:
         st.info("No shortlisted calls yet. Use the **Shortlist** checkbox in the Full Data tab to add items.")
         st.stop()
 
-    # closing_date_any safeguard
+    # Safeguard closing_date_any
     if "closing_date_any" not in ff.columns:
         close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in ff.columns]
-        if close_cols:
-            ff["closing_date_any"] = pd.to_datetime(ff[close_cols].stack(), errors="coerce").groupby(level=0).min()
-        else:
-            ff["closing_date_any"] = pd.NaT
+        ff["closing_date_any"] = pd.to_datetime(ff[close_cols].stack(), errors="coerce").groupby(level=0).min() if close_cols else pd.NaT
 
     ff = ff.sort_values([c for c in ["closing_date_any","opening_date"] if c in ff.columns])
     selected_df = ff[ff["code"].astype(str).isin(shortlisted_codes)].copy()
@@ -495,43 +473,35 @@ with tab_short:
     if guard_large_render(selected_df, "Shortlist Gantt"):
         st.markdown("### 📅 Gantt — Shortlisted Calls")
         gsrc = prepare_dates_for_chart(selected_df)
-        color_by = st.selectbox(
-            "Colour bars by",
-            options=[opt for opt in ["type_of_action", "programme", "cluster"] if opt in gsrc.columns],
-            index=0
-        )
+        color_by = st.selectbox("Colour bars by",
+                                options=[opt for opt in ["type_of_action", "programme", "cluster"] if opt in gsrc.columns],
+                                index=0)
         g_all = build_singlebar_rows(gsrc)
         if g_all.empty:
             total = len(selected_df)
             with_dates = selected_df["deadline"].notna().sum()
-            st.info(
-                f"No valid date ranges for the current shortlist. "
-                f"(Selected: {total}; with any deadline: {with_dates})"
-            )
+            st.info(f"No valid date ranges for the current shortlist. (Selected: {total}; with any deadline: {with_dates})")
             st.session_state.shortlist_chart_png = None
         else:
             chart = gantt_singlebar_chart(g_all, color_field=color_by)
             st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
             st.altair_chart(chart, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-    
-          
-            # Save Altair chart to PNG (try Altair → fallback to matplotlib)
+
+            # Save Altair chart to PNG (try vl-convert → fallback)
             try:
-                import io
                 buf = io.BytesIO()
-                chart.save(buf, format="png")   # requires vl-convert-python
+                chart.save(buf, format="png")   # needs vl-convert-python in env
                 st.session_state.shortlist_chart_png = buf.getvalue()
             except Exception as e:
                 st.warning(f"Altair export failed ({e}), using matplotlib fallback.")
                 st.session_state.shortlist_chart_png = shortlist_gantt_png(gsrc, color_by=color_by)
-            
 
     # Notes + Title + DOCX
     if not selected_df.empty:
         st.markdown("---")
 
-        # Merge edits from session state into the selected_df for export
+        # Merge any edits from session state
         merge_edits_into_df(selected_df, st.session_state)
 
         for _, r in selected_df.iterrows():
@@ -540,18 +510,15 @@ with tab_short:
             st.session_state.notes35[code] = st.text_area(f"Notes — {code}", value=default, height=110, key=f"note35_{code}")
 
         colA, _colB = st.columns(2)
-        with colA: title = st.text_input("Report title", value="Funding Report – Shortlist")
+        with colA:
+            title = st.text_input("Report title", value="Funding Report – Shortlist")
 
         if st.button("📄 Generate DOCX"):
             try:
                 if DOCX_AVAILABLE:
                     export_df = selected_df.copy()
-                    merge_edits_into_df(export_df, st.session_state)  # <-- apply text edits
-                    data = generate_docx_report(
-                        export_df,
-                        st.session_state.notes35,
-                        title=title,
-                    )
+                    merge_edits_into_df(export_df, st.session_state)
+                    data = generate_docx_report(export_df, st.session_state.notes35, title=title)
                     st.download_button("⬇️ Download .docx", data=data,
                                        file_name="funding_report.docx",
                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
