@@ -182,10 +182,14 @@ def clean_footer(text: str) -> str:
     cleaned = pat.sub("", text)
     return re.sub(r"\s+", " ", cleaned).strip()
 
+import re
+
 def normalize_bullets(text: str) -> str:
     """
-    Replace common bullet characters at the start of lines with "- ".
-    Keep everything else intact, no aggressive substitutions.
+    Normalize bullets in PDF text:
+    - Replace common bullet symbols at start of lines with "- ".
+    - Merge wrapped bullet lines into a single line.
+    - Leave normal text and dashes intact.
     """
     if not isinstance(text, str) or not text.strip():
         return ""
@@ -197,11 +201,39 @@ def normalize_bullets(text: str) -> str:
     bullet_pattern = re.compile(r"(?m)^[ \t]*([▪◦●•·*])\s+")
     text = bullet_pattern.sub("- ", text)
 
-    # Replace numbered bullets like "1. " or "a) " at start of line
+    # Handle numbered and lettered bullets at start of line
     text = re.sub(r"(?m)^[ \t]*(\d+[\.\)])\s+", r"\1 ", text)
     text = re.sub(r"(?m)^[ \t]*([A-Za-z][\.\)])\s+", r"\1 ", text)
 
-    return text.strip()
+    # Merge wrapped bullet lines:
+    # if a line starts with "- " it's a bullet,
+    # lines that follow without a blank line are continuations → join with space
+    lines = text.split("\n")
+    merged = []
+    buffer = []
+
+    for line in lines:
+        if line.strip().startswith("- "):  
+            # start of a new bullet → flush previous buffer
+            if buffer:
+                merged.append(" ".join(buffer).strip())
+                buffer = []
+            buffer.append(line.strip())
+        elif buffer and line.strip() and not line.strip().startswith("- "):
+            # continuation of the current bullet
+            buffer.append(line.strip())
+        else:
+            # non-bullet text
+            if buffer:
+                merged.append(" ".join(buffer).strip())
+                buffer = []
+            merged.append(line.strip())
+
+    # flush last buffer
+    if buffer:
+        merged.append(" ".join(buffer).strip())
+
+    return "\n".join([l for l in merged if l])
 
 
 def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
