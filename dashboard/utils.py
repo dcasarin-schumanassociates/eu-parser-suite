@@ -1,23 +1,26 @@
 # utils.py — helpers (branding, loading, cleaning, charts, shortlist, report)
 from __future__ import annotations
+
 import io, re, base64
 from datetime import datetime
-from typing import List, Dict, Optional, Iterable
+from typing import List, Dict, Optional
 from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 import altair as alt
 
-# DOCX
+# ---------- Optional DOCX ----------
 try:
     from docx import Document
     from docx.shared import Pt, Inches, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.section import WD_ORIENT, WD_SECTION_START
     DOCX_AVAILABLE = True
 except Exception:
     DOCX_AVAILABLE = False
 
-# Matplotlib for PNG chart embedding
+# ---------- Matplotlib (PNG fallback for Gantt export) ----------
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -27,8 +30,6 @@ import matplotlib.dates as mdates
 ASSETS_DIR = Path("assets")
 FONTS_DIR  = ASSETS_DIR / "fonts"
 LOGO_BLUE  = ASSETS_DIR / "logo-schuman_blue.png"
-LOGO_GREY  = ASSETS_DIR / "logo-schuman_grey.png"
-LOGO_WHITE = ASSETS_DIR / "logo-schuman_white.png"
 
 FONT_FILES = [
     ("SA Brand", "normal", 300, ASSETS_DIR / "Frm-Light.otf"),
@@ -41,19 +42,33 @@ FONT_FILES = [
 
 # ---------- Columns / display ----------
 COLUMN_MAP = {
-    "Programme": "programme", "Code": "code", "Title": "title",
+    "Programme": "programme",
+    "Code": "code",
+    "Title": "title",
     "Opening Date": "opening_date", "Opening date": "opening_date",
-    "Deadline": "deadline", "First Stage Deadline": "first_deadline",
+    "Deadline": "deadline",
+    "First Stage Deadline": "first_deadline",
     "Second Stage Deadline": "second_deadline", "Second Stage deadline": "second_deadline",
-    "Two-Stage": "two_stage", "Cluster": "cluster", "Destination": "destination",
-    "Destination / Strand": "destination", "Destination/Strand": "destination", "Strand": "destination",
+    "Two-Stage": "two_stage",
+    "Cluster": "cluster",
+    "Destination": "destination", "Destination / Strand": "destination", "Destination/Strand": "destination", "Strand": "destination",
     "Budget Per Project": "budget_per_project_eur", "Budget per project": "budget_per_project_eur",
-    "Total Budget": "total_budget_eur", "Number of Projects": "num_projects",
-    "Type of Action": "type_of_action", "TRL": "trl", "Call Name": "call_name",
-    "Expected Outcome": "expected_outcome", "Scope": "scope", "Description": "full_text",
-    "Source Filename": "source_filename", "Version Label": "version_label", "Parsed On (UTC)": "parsed_on_utc",
-    "Managing Authority": "managing_authority", "Key Action": "key_action",
+    "Total Budget": "total_budget_eur",
+    "Number of Projects": "num_projects",
+    "Type of Action": "type_of_action",
+    "TRL": "trl",
+    "Call Name": "call_name",
+    "Expected Outcome": "expected_outcome",
+    "Scope": "scope",
+    "Description": "full_text",
+    "Source Filename": "source_filename",
+    "Version Label": "version_label",
+    "Parsed On (UTC)": "parsed_on_utc",
+    # Erasmus+
+    "Managing Authority": "managing_authority",
+    "Key Action": "key_action",
 }
+
 DISPLAY_COLS = [
     "programme","code","title","opening_date","deadline",
     "type_of_action","budget_per_project_eur",
@@ -77,7 +92,7 @@ def _read_theme_css(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 def inject_brand_css():
-    """Injects @font-face (from OTFs) + static theme from assets/theme.css."""
+    """Inject @font-face (OTFs) + static theme from assets/theme.css."""
     font_faces = []
     for fam, style, weight, path in FONT_FILES:
         if path.exists():
@@ -94,11 +109,12 @@ def inject_brand_css():
                 """)
     font_css = "\n".join(font_faces)
     theme_css = _read_theme_css(ASSETS_DIR / "theme.css")
+    # Add a harmless fallback font
+    theme_css += "\n:root { --sa-fallback-font: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }\n"
     st.markdown(f"<style>\n{font_css}\n{theme_css}\n</style>", unsafe_allow_html=True)
 
 def brand_header():
-    """Top hero header with no background colour and blue logo."""
-    # Force using the blue logo
+    """Top hero header with blue logo (transparent background)."""
     logo_src = None
     if LOGO_BLUE.exists():
         logo_src = f"data:image/png;base64,{_file_to_base64(LOGO_BLUE)}"
@@ -106,9 +122,9 @@ def brand_header():
     st.markdown(f"""
     <div style="
       border-radius: 16px;
-      background: transparent;  /* no colour */
+      background: transparent;
       padding: 24px 20px;
-      color: var(--sa-ink, #0F172A); /* dark ink for text */
+      color: var(--sa-ink, #0F172A);
       text-align: center;">
       {'<img src="'+logo_src+'" alt="Schuman Associates" style="height:60px; margin-bottom:12px;" />' if logo_src else ''}
       <div style="font-size:20px; font-weight:700; margin-bottom:4px;"> · Funding Dashboard · </div>
@@ -116,131 +132,152 @@ def brand_header():
     """, unsafe_allow_html=True)
 
 # ---------- Text utils ----------
-
 def nl_to_br(s: str) -> str:
+    """
+    HTML-friendly rendering: keep paragraphs and sentence ends,
+    but avoid creating a <br> for every PDF line.
+    """
     if not s:
         return ""
-    # Normalize line endings
     text = s.replace("\r\n", "\n").replace("\r", "\n")
-    
-    # Collapse multiple newlines into a paragraph break
+    # Paragraphs: 2+ newlines → <br><br>
     text = re.sub(r"\n{2,}", "<br><br>", text)
-    
-    # For single newlines: replace with space, unless preceded by punctuation
-    text = re.sub(r"(?<![.!?])\n(?!\n)", " ", text)  # join lines
-    text = re.sub(r"([.!?])\n", r"\1<br>", text)     # keep break after sentence
-    
+    # Single newlines: join unless preceded by sentence punctuation
+    text = re.sub(r"(?<![.!?;:])\n(?!\n)", " ", text)  # soft-wrap → space
+    text = re.sub(r"([.!?;:])\n", r"\1<br>", text)     # sentence → break
     return text
 
-def highlight_text(text: str, keywords: list[str], colours=None, match_case: bool = False) -> str:
+def highlight_text(text: str, keywords: list[str], colours=None, match_case: bool = False, whole_word: bool = False) -> str:
     """
-    Wrap keywords in <span> with background colour + bold.
-    - text: input string
-    - keywords: list of terms to highlight
-    - colours: list of colours to cycle through
-    - match_case: if True, highlight case-sensitively; otherwise case-insensitive
+    Wrap keywords in <span> with background + bold.
+    - whole_word=True → use \bword\b boundaries to avoid partial matches.
     """
-    import re
-
     if not text:
         return ""
-
     kws = [str(k).strip() for k in keywords if k and str(k).strip()]
     if not kws:
         return text
-
     if colours is None:
         colours = ["#ffff00", "#a0e7e5", "#ffb3b3"]
-
     out = str(text)
     for i, kw in enumerate(kws):
         colour = colours[i % len(colours)]
         flags = 0 if match_case else re.IGNORECASE
+        pat = r"\b{}\b".format(re.escape(kw)) if whole_word else re.escape(kw)
         out = re.sub(
-            re.escape(kw),
+            pat,
             lambda m: f"<span style='background-color:{colour}; font-weight:bold;'>{m.group(0)}</span>",
             out,
             flags=flags,
         )
     return out
 
-
-def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
-    """In-place: apply text edits from session_state to df, if present."""
-    for i, row in df.iterrows():
-        code = str(row.get("code") or f"id-{i}")
-        for field in ("expected_outcome", "scope", "full_text"):
-            k = f"edit_{field}_{code}"
-            if k in sstate and isinstance(sstate[k], str) and sstate[k].strip():
-                df.at[i, field] = sstate[k]
-
-
 def clean_footer(text: str) -> str:
+    """Remove WP footers like 'Horizon Europe - Work Programme ... Page x of y'."""
     if not text:
         return ""
     pat = re.compile(r"Horizon\s*Europe\s*[-–]?\s*Work Programme.*?Page\s+\d+\s+of\s+\d+", re.IGNORECASE | re.DOTALL)
     cleaned = pat.sub("", text)
-    return re.sub(r"\s+", " ", cleaned).strip()
-
-import re
+    # collapse weird spacing; keep newlines (we’ll handle structure later)
+    cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+    return re.sub(r"[ \t]+", " ", cleaned).strip()
 
 def normalize_bullets(text: str) -> str:
     """
     Normalize bullets in PDF text:
     - Replace common bullet symbols at start of lines with "- ".
-    - Merge wrapped bullet lines into a single line.
-    - Leave normal text and dashes intact.
+    - Normalize numbered/lettered bullets (e.g. "1.", "a)").
+    - Merge wrapped bullet lines (continuations) into the same line.
     """
     if not isinstance(text, str) or not text.strip():
         return ""
 
-    # Normalize line endings
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Replace common bullet characters ONLY at start of line
-    bullet_pattern = re.compile(r"(?m)^[ \t]*([▪◦●•·*])\s+")
-    text = bullet_pattern.sub("- ", text)
+    # Symbols → "- "
+    t = re.sub(r"(?m)^[ \t]*([▪◦●•·*])\s+", "- ", t)
 
-    # Handle numbered and lettered bullets at start of line
-    text = re.sub(r"(?m)^[ \t]*(\d+[\.\)])\s+", r"\1 ", text)
-    text = re.sub(r"(?m)^[ \t]*([A-Za-z][\.\)])\s+", r"\1 ", text)
+    # Numbered / lettered bullets keep as-is (we just normalize spacing)
+    # Examples: "1. ", "2) ", "a. ", "b) "
+    t = re.sub(r"(?m)^[ \t]*(\d+[\.\)])\s+", r"\1 ", t)
+    t = re.sub(r"(?m)^[ \t]*([A-Za-z][\.\)])\s+", r"\1 ", t)
 
-    # Merge wrapped bullet lines:
-    # if a line starts with "- " it's a bullet,
-    # lines that follow without a blank line are continuations → join with space
-    lines = text.split("\n")
-    merged = []
-    buffer = []
+    lines = t.split("\n")
+    merged: list[str] = []
+    buf: list[str] = []
+    def flush():
+        nonlocal buf, merged
+        if buf:
+            merged.append(" ".join(x.strip() for x in buf if x.strip()))
+            buf = []
 
-    for line in lines:
-        if line.strip().startswith("- "):  
-            # start of a new bullet → flush previous buffer
-            if buffer:
-                merged.append(" ".join(buffer).strip())
-                buffer = []
-            buffer.append(line.strip())
-        elif buffer and line.strip() and not line.strip().startswith("- "):
-            # continuation of the current bullet
-            buffer.append(line.strip())
+    def is_bullet_start(s: str) -> bool:
+        s = s.lstrip()
+        return s.startswith("- ") or bool(re.match(r"^(\d+[\.\)]|[A-Za-z][\.\)])\s+", s))
+
+    for raw in lines:
+        s = raw.rstrip()
+        if not s.strip():
+            # blank line ⇒ paragraph break; flush any bullet
+            flush()
+            merged.append("")  # keep blank line
+            continue
+
+        if is_bullet_start(s):
+            flush()
+            buf = [s.strip()]
+        elif buf:
+            # continuation of current bullet (no blank line between)
+            buf.append(s.strip())
         else:
-            # non-bullet text
-            if buffer:
-                merged.append(" ".join(buffer).strip())
-                buffer = []
-            merged.append(line.strip())
+            flush()
+            merged.append(s.strip())
 
-    # flush last buffer
-    if buffer:
-        merged.append(" ".join(buffer).strip())
-
-    return "\n".join([l for l in merged if l])
-
+    flush()
+    # collapse neighboring blank lines to max 2 (visual paragraph break)
+    out: list[str] = []
+    blank_run = 0
+    for ln in merged:
+        if ln == "":
+            blank_run += 1
+            if blank_run <= 2:
+                out.append("")
+        else:
+            blank_run = 0
+            out.append(ln)
+    return "\n".join(out)
 
 def strip_and_collect_footnotes(text: str) -> tuple[str, dict[int, str]]:
-    """Neutered placeholder — returns text unchanged and empty dict."""
+    """Placeholder — no-op for now (kept for API compatibility)."""
     if not isinstance(text, str) or not text.strip():
         return "", {}
     return text, {}
+
+def prepare_for_docx(text: str) -> list[str]:
+    """
+    Collapse soft wraps; split into paragraphs.
+    Assumes the text was already run through clean_footer → normalize_bullets.
+    """
+    if not text:
+        return []
+    # Soft line breaks → space (but keep paragraph gaps intact)
+    t = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+    # Normalize multiple blank lines into double-newline paragraph breaks
+    t = re.sub(r"\n{2,}", "\n\n", t)
+    return [p.strip() for p in t.split("\n\n") if p.strip()]
+
+# ---------- Edits / session state ----------
+def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
+    """In-place: apply text edits from session_state to df."""
+    if df.empty:
+        return
+    for idx, rr in df.iterrows():
+        code = str(rr.get("code") or f"id-{idx}")
+        for field in ("expected_outcome","scope","full_text"):
+            key = f"edit_{field}_{code}"
+            val = sstate.get(key, "")
+            if isinstance(val, str) and val.strip():
+                df.at[idx, field] = val
 
 # ---------- Dates & canonicalisation ----------
 def safe_date_series(s: pd.Series) -> pd.Series:
@@ -250,12 +287,14 @@ def safe_date_series(s: pd.Series) -> pd.Series:
     return out
 
 def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
+    df = df.copy()
     df.columns = [c.strip() for c in df.columns]
     for src, dst in COLUMN_MAP.items():
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
     df = df.rename(columns={c: c.strip().lower() for c in df.columns})
-    df["programme"] = programme_name
+    if "programme" not in df.columns:
+        df["programme"] = programme_name  # don't overwrite if already present
 
     for c in ("budget_per_project_eur","total_budget_eur","trl","num_projects"):
         if c in df.columns:
@@ -274,38 +313,37 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     else:
         df["two_stage"] = False
 
-    # --- searchable fields ---
+    # Search haystacks (raw + lower)
     present = [c for c in (
         "code","title","call_name","expected_outcome","scope","full_text",
-        "cluster","destination","type_of_action","trl","managing_authority","key_action"
+        "cluster","destination","type_of_action","trl",
+        "managing_authority","key_action"
     ) if c in df.columns]
-
     if present:
         joined = df[present].astype(str).agg(" ".join, axis=1)
-        df["_search_all"] = joined.str.lower()
         df["_search_all_raw"] = joined
+        df["_search_all"] = joined.str.lower()
     else:
+        df["_search_all_raw"] = ""
         df["_search_all"] = ""
-        df["_search_all_raw"] = ""   # ensure always present
 
     title_cols = [c for c in ["code","title"] if c in df.columns]
     if title_cols:
-        joined_titles = df[title_cols].astype(str).agg(" ".join, axis=1)
-        df["_search_title"] = joined_titles.str.lower()
-        df["_search_title_raw"] = joined_titles
+        titles = df[title_cols].astype(str).agg(" ".join, axis=1)
+        df["_search_title_raw"] = titles
+        df["_search_title"] = titles.str.lower()
     else:
+        df["_search_title_raw"] = ""
         df["_search_title"] = ""
-        df["_search_title_raw"] = ""   # ensure always present
 
-    # --- dates ---
+    # Dates
     close_cols = [c for c in ["deadline","first_deadline","second_deadline"] if c in df.columns]
     if close_cols:
         df["closing_date_any"] = pd.to_datetime(df[close_cols].stack(), errors="coerce").groupby(level=0).min()
     else:
         df["closing_date_any"] = pd.NaT
-    df["opening_year"]  = df["opening_date"].dt.year
-    df["deadline_year"] = df["deadline"].dt.year
-
+    df["opening_year"]  = df.get("opening_date").dt.year
+    df["deadline_year"] = df.get("deadline").dt.year
     return df
 
 # ---------- Caching: load sheets ----------
@@ -316,11 +354,10 @@ def get_sheet_names(file_bytes: bytes) -> List[str]:
 
 @st.cache_data(show_spinner=False)
 def load_programme(file_bytes: bytes, sheet_name: str, programme_name: str, _ver:int=1) -> pd.DataFrame:
-    _ = hash(file_bytes)
+    _ = hash(file_bytes)  # cache key
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     raw = pd.read_excel(xls, sheet_name=sheet_name)
-    df = canonicalise(raw, programme_name)
-    return df.copy(deep=True)
+    return canonicalise(raw, programme_name)
 
 # ---------- Charts (Altair) ----------
 def wrap_label(text: str, width=60, max_lines=3) -> str:
@@ -334,26 +371,6 @@ def build_month_bands(min_x: pd.Timestamp, max_x: pd.Timestamp) -> pd.DataFrame:
     months = pd.date_range(start, end, freq="MS")
     return pd.DataFrame({"start": months[:-1], "end": months[1:], "band": [i % 2 for i in range(len(months)-1)]})
 
-def build_singlebar_rows(df: pd.DataFrame) -> pd.DataFrame:
-    g = df.copy()
-    if "code" in g.columns and g["code"].notna().any():
-        base = g["code"].fillna("").astype(str)
-    elif "title" in g.columns and g["title"].notna().any():
-        base = g["title"].fillna("").astype(str)
-    else:
-        base = pd.Series([f"row-{i}" for i in range(len(g))], index=g.index)
-    if base.duplicated(keep=False).any():
-        base = base + g.groupby(base).cumcount().astype(str).radd("#")
-
-    g["y_label"] = base.map(lambda s: wrap_label(s, width=100, max_lines=5))
-    g["title_inbar"] = g.get("title","").astype(str).map(lambda s: wrap_label(s, width=100, max_lines=3))
-    g = g[pd.notna(g["opening_date"]) & pd.notna(g["deadline"]) & (g["opening_date"] <= g["deadline"])].copy()
-    if g.empty:
-        return g
-    g["bar_days"] = (g["deadline"] - g["opening_date"]).dt.days
-    g["mid"] = g["opening_date"] + (g["deadline"] - g["opening_date"])/2
-    return g.sort_values(["deadline","opening_date"])
-
 def sa_altair_theme():
     return {
         "config": {
@@ -362,67 +379,67 @@ def sa_altair_theme():
             "legend": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
             "header": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
             "title":  {"font": "SA Brand", "fontSize": 16, "fontWeight": 700, "color":"#0F172A"},
-            "range": {
-                "category": ["#1E4F86","#66C2A5","#FC8D62","#8DA0CB","#E78AC3","#A6D854","#FFD92F","#E5C494","#B3B3B3"]
-            },
-            "view": {"stroke": "transparent"}
+            "range":  {"category": ["#1E4F86","#66C2A5","#FC8D62","#8DA0CB","#E78AC3","#A6D854","#FFD92F","#E5C494","#B3B3B3"]},
+            "view":   {"stroke": "transparent"}
         }
     }
 
 alt.themes.register("sa_theme", sa_altair_theme)
 alt.themes.enable("sa_theme")
 
+def build_singlebar_rows(df: pd.DataFrame) -> pd.DataFrame:
+    g = df.copy()
+    base = g["code"].fillna("").astype(str) if "code" in g.columns else pd.Series("", index=g.index)
+    fallback = g.get("title", pd.Series("", index=g.index)).fillna("").astype(str)
+    labels = base.where(base != "", fallback)
+    # ensure uniqueness
+    labels = labels + g.groupby(labels).cumcount().replace(0, "").astype(str).radd("#").replace("#0","")
+    g["y_label"] = labels.map(lambda s: wrap_label(s, width=100, max_lines=5))
+    g["title_inbar"] = g.get("title","").astype(str).map(lambda s: wrap_label(s, width=100, max_lines=3))
+    g = g[pd.notna(g.get("opening_date")) & pd.notna(g.get("deadline")) & (g["opening_date"] <= g["deadline"])].copy()
+    if g.empty:
+        return g
+    g["bar_days"] = (g["deadline"] - g["opening_date"]).dt.days
+    g["mid"] = g["opening_date"] + (g["deadline"] - g["opening_date"])/2
+    return g.sort_values(["deadline","opening_date"])
+
 def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", title: str = ""):
     if g is None or g.empty:
         return None
 
-    min_x = min(g["opening_date"].min(), g["deadline"].min())
-    max_x = max(g["opening_date"].max(), g["deadline"].max())
-
+    domain_min = g["opening_date"].min()
+    domain_max = g["deadline"].max()
     today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
-    today_df = pd.DataFrame({"t":[today_ts]})
-    
-    # ensure today is included in domain
-    domain_min = min(g["opening_date"].min(), today_ts)
-    domain_max = max(g["deadline"].max(), today_ts)
-    
-    bands_df = build_month_bands(domain_min, domain_max)
+    domain_min = min(domain_min, today_ts)
+    domain_max = max(domain_max, today_ts)
 
-    months = pd.date_range(
-    pd.Timestamp(domain_min).to_period("M").start_time,
-    pd.Timestamp(domain_max).to_period("M").end_time,
-    freq="MS"
-    )
-    
+    bands_df = build_month_bands(domain_min, domain_max)
+    months = pd.date_range(pd.Timestamp(domain_min).to_period("M").start_time,
+                           pd.Timestamp(domain_max).to_period("M").end_time, freq="MS")
+
     month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
         x="start:T", x2="end:T",
         opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.05]), legend=None),
         color=alt.value("#1E4F86")
     )
-    
     month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#1E4F86", strokeWidth=0.3).encode(x="t:T")
-    month_labels_df = pd.DataFrame({
-        "month": months[:-1], "next_month": months[1:],
-        "label": [m.strftime("%b %Y") for m in months[:-1]]
-    })
+    month_labels_df = pd.DataFrame({"month": months[:-1], "next_month": months[1:], "label": [m.strftime("%b %Y") for m in months[:-1]]})
     month_labels_df["mid"] = month_labels_df["month"] + ((month_labels_df["next_month"] - month_labels_df["month"]) / 2)
-    month_labels = alt.Chart(month_labels_df).mark_text(
-        align="center", baseline="top", dy=0, fontSize=11, fontWeight="bold"
-    ).encode(x="mid:T", text="label:N", y=alt.value(0))
-    
-    today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
-            x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
-        )
+    month_labels = alt.Chart(month_labels_df).mark_text(align="center", baseline="top", dy=0, fontSize=11, fontWeight="bold").encode(
+        x="mid:T", text="label:N", y=alt.value(0)
+    )
 
-    today_label = alt.Chart(today_df).mark_text(
-        align="left", baseline="top", dx=4, dy=15, fontSize=11, fontWeight="bold", color="#1E4F86"
-    ).encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: %d %b %Y'))
+    today_df = pd.DataFrame({"t":[today_ts]})
+    today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
+        x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
+    )
+    today_label = alt.Chart(today_df).mark_text(align="left", baseline="top", dx=4, dy=15, fontSize=11, fontWeight="bold", color="#1E4F86").encode(
+        x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: %d %b %Y')
+    )
 
     y_order = g["y_label"].drop_duplicates().tolist()
     row_h = 46
     bar_size = int(row_h * 0.38)
-    domain_min = min(g["opening_date"].min(), today_ts)
-    domain_max = max(g["deadline"].max(), today_ts)
 
     base = alt.Chart(g).encode(
         y=alt.Y("y_label:N", sort=y_order,
@@ -437,8 +454,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
                 scale=alt.Scale(domain=[domain_min, domain_max])),
         x2="deadline:T",
         color=alt.Color(color_field + ":N",
-                        legend=alt.Legend(title=color_field.replace("_"," ").title(),
-                                          orient="top", direction="horizontal", offset=100),
+                        legend=alt.Legend(title=color_field.replace("_"," ").title(), orient="top", direction="horizontal", offset=100),
                         scale=alt.Scale(scheme="set2")),
         tooltip=[
             alt.Tooltip("title:N", title="Title"),
@@ -448,24 +464,19 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
         ]
     )
 
-    start_labels = base.mark_text(align="right", dx=-4, dy=5, fontSize=10, color="#111")\
-        .encode(x="opening_date:T", text=alt.Text("opening_date:T", format="%d %b %Y"))
-    end_labels   = base.mark_text(align="left",  dx=4, dy=5, fontSize=10, color="#111")\
-        .encode(x="deadline:T",      text=alt.Text("deadline:T",      format="%d %b %Y"))
-    
-    inbar = base.mark_text(align="left",
-                           baseline="bottom",
-                           dx=2, 
-                           dy=-(int(bar_size/2)+4),
-                           color="black",
-                           font="SA Brand",
-                           fontSize=12,
-                           fontWeight=700)\
-        .encode(x=alt.X("opening_date:T",
-                        scale=alt.Scale(domain=[domain_min, domain_max]),
-                        axis=None),
-                text="title_inbar:N",
-                opacity=alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0)))
+    start_labels = base.mark_text(align="right", dx=-4, dy=5, fontSize=10, color="#111").encode(
+        x="opening_date:T", text=alt.Text("opening_date:T", format="%d %b %Y"))
+    end_labels = base.mark_text(align="left", dx=4, dy=5, fontSize=10, color="#111").encode(
+        x="deadline:T", text=alt.Text("deadline:T", format="%d %b %Y"))
+
+    inbar = base.mark_text(
+        align="left", baseline="bottom", dx=2, dy=-(int(bar_size/2)+4),
+        color="black", font="SA Brand", fontSize=12, fontWeight=700
+    ).encode(
+        x=alt.X("opening_date:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
+        text="title_inbar:N",
+        opacity=alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
+    )
 
     chart = (month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels + today_rule + today_label)\
         .properties(height=max(800, len(y_order)*row_h), width='container',
@@ -502,22 +513,21 @@ def shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> O
     if g.empty:
         return None
 
-    base = g["code"].fillna("").astype(str)
-    fallback = g["title"].fillna("").astype(str)
-    labels = base.where(base.ne(""), fallback)
+    base = g["code"].fillna("").astype(str) if "code" in g.columns else pd.Series("", index=g.index)
+    fallback = g.get("title", pd.Series("", index=g.index)).fillna("").astype(str)
+    labels = base.where(base != "", fallback)
     labels = labels + g.groupby(labels).cumcount().replace(0, "").astype(str).radd("#").replace("#0", "")
     g["_y"] = labels
     g = g.sort_values(["deadline","opening_date"]).reset_index(drop=True)
 
     categories = g.get(color_by) if color_by in g.columns else None
+    colors = None
     if categories is not None:
         cats = categories.fillna("—").astype(str)
         uniq = pd.unique(cats)
         cmap = plt.get_cmap("tab20")
         color_map = {c: cmap(i % 20) for i, c in enumerate(uniq)}
         colors = cats.map(color_map)
-    else:
-        colors = None
 
     n = len(g)
     h = max(3.0, min(0.4 * n + 1.0, 10.0))
@@ -527,8 +537,8 @@ def shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> O
     dur = (pd.to_datetime(g["deadline"]) - pd.to_datetime(g["opening_date"])).dt.days.clip(lower=1)
 
     y_pos = range(n)
-    ax.barh(list(y_pos), dur, left=start_nums, height=0.35,
-            align="center", color=(colors if colors is not None else None), edgecolor="none")
+    ax.barh(list(y_pos), dur, left=start_nums, height=0.35, align="center",
+            color=(colors if colors is not None else None), edgecolor="none")
 
     ax.set_yticks(list(y_pos))
     ax.set_yticklabels(g["_y"])
@@ -541,8 +551,7 @@ def shortlist_gantt_png(df: pd.DataFrame, color_by: str = "type_of_action") -> O
     ax.axvline(today, linestyle="--", linewidth=1.5, color="#1E4F86")
 
     ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.6)
-    ax.set_xlabel("")
-    ax.set_ylabel("")
+    ax.set_xlabel(""); ax.set_ylabel("")
     plt.tight_layout()
 
     bio = io.BytesIO()
@@ -581,62 +590,36 @@ def render_shortlist_row(exp_label: str, code: str, render_body_fn):
         with st.expander(exp_label or "(untitled)"):
             render_body_fn()
 
-def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
-    """In-place: apply text edits from session_state to df."""
-    if df.empty:
-        return
-    for idx, rr in df.iterrows():
-        code = str(rr.get("code") or "")
-        for field in ["expected_outcome","scope","full_text"]:
-            key = f"edit_{field}_{code}"
-            val = sstate.get(key, "")
-            if isinstance(val, str) and val.strip():
-                df.at[idx, field] = val
-
-import io
-import re
-import pandas as pd
-from typing import Dict
-from docx import Document
-from docx.shared import Cm
-from docx.enum.section import WD_ORIENT, WD_SECTION_START
-
-def prepare_for_docx(text: str) -> list[str]:
-    """Collapse soft line breaks and split into clean paragraphs."""
-    if not text:
-        return []
-    # Collapse single newlines into spaces
-    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
-    # Normalize multiple blank lines into paragraph breaks
-    text = re.sub(r"\n{2,}", "\n\n", text)
-    # Split into paragraphs
-    return [p.strip() for p in text.split("\n\n") if p.strip()]
-
+# ---------- Report (DOCX) ----------
 def generate_docx_report(
     calls_df: pd.DataFrame,
     notes_by_code: Dict[str, str],
     title: str = "Funding Report",
-    shortlist_gantt_png: bytes | None = None  # ignored for compatibility
+    shortlist_gantt_png: bytes | None = None  # reserved for future header image
 ) -> bytes:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx not installed")
 
     import os
     template_path = os.path.join("assets", "report_template.docx")
-    doc = Document(template_path)   # template contains blue header + white logo
+    doc = Document(template_path) if Path(template_path).exists() else Document()
 
     # --- First section: Landscape summary ---
     sec = doc.sections[-1]
-    sec.orientation = WD_ORIENT.LANDSCAPE
-    sec.page_width, sec.page_height = sec.page_height, sec.page_width
+    try:
+        sec.orientation = WD_ORIENT.LANDSCAPE
+        sec.page_width, sec.page_height = sec.page_height, sec.page_width
+    except Exception:
+        pass
 
     doc.add_heading(title, level=0)
+    meta = doc.add_paragraph(f"Generated on {datetime.utcnow():%d %b %Y, %H:%M UTC}")
+    meta.runs[0].font.size = Pt(9)
 
-    # Add 7 columns instead of 5
+    # Summary table
     table = doc.add_table(rows=1, cols=7, style="Table Grid")
     hdr = table.rows[0].cells
-    headers = ["Programme", "Code", "Title", "Opening", "Deadline",
-               "Type of Action", "Budget per Project"]
+    headers = ["Programme", "Code", "Title", "Opening", "Deadline", "Type of Action", "Budget per Project"]
     for i, t in enumerate(headers):
         hdr[i].text = t
 
@@ -645,83 +628,77 @@ def generate_docx_report(
         row[0].text = str(r.get("programme", ""))
         row[1].text = str(r.get("code", ""))
         row[2].text = str(r.get("title", ""))
-
         op, dl = r.get("opening_date"), r.get("deadline")
         row[3].text = op.strftime("%d %b %Y") if pd.notna(op) else "-"
         row[4].text = dl.strftime("%d %b %Y") if pd.notna(dl) else "-"
-
         row[5].text = str(r.get("type_of_action", "-"))
-
         bpp = r.get("budget_per_project_eur")
         row[6].text = f"{bpp:,.0f} EUR" if pd.notna(bpp) else "-"
 
     # --- Second section: Portrait details ---
-    sec = doc.add_section(WD_SECTION_START.NEW_PAGE)
-    sec.orientation = WD_ORIENT.PORTRAIT
-    sec.page_width, sec.page_height = sec.page_height, sec.page_width
+    try:
+        sec = doc.add_section(WD_SECTION_START.NEW_PAGE)
+        sec.orientation = WD_ORIENT.PORTRAIT
+        sec.page_width, sec.page_height = sec.page_height, sec.page_width
+    except Exception:
+        pass
 
     for _, r in calls_df.iterrows():
-        doc.add_section(WD_SECTION_START.NEW_PAGE)
+        try:
+            doc.add_section(WD_SECTION_START.NEW_PAGE)
+        except Exception:
+            doc.add_page_break()
+
         doc.add_heading(f"{r.get('code','')} — {r.get('title','')}", level=1)
 
-        # metadata
-        lines = []
-        lines.append(f"Programme: {r.get('programme','-')}")
-        lines.append(f"Cluster: {r.get('cluster','-')}")
-        lines.append(f"Destination: {r.get('destination_or_strand', r.get('destination','-'))}")
-        lines.append(f"Type of Action: {r.get('type_of_action','-')}")
+        # Metadata block (use one paragraph with explicit line breaks)
+        meta_lines = []
+        meta_lines.append(f"Programme: {r.get('programme','-')}")
+        if "cluster" in r:      meta_lines.append(f"Cluster: {r.get('cluster','-')}")
+        dest = r.get("destination_or_strand", r.get("destination", "-")) if isinstance(r, dict) else r.get("destination", "-")
+        meta_lines.append(f"Destination: {dest}")
+        meta_lines.append(f"Type of Action: {r.get('type_of_action','-')}")
         trl_val = r.get("trl")
-        lines.append(f"TRL: {int(trl_val) if pd.notna(trl_val) else '-'}")
+        meta_lines.append(f"TRL: {int(trl_val) if pd.notna(trl_val) else '-'}")
         op, dl = r.get("opening_date"), r.get("deadline")
-        lines.append(f"Opening: {op:%d %b %Y}" if pd.notna(op) else "Opening: -")
-        lines.append(f"Deadline: {dl:%d %b %Y}" if pd.notna(dl) else "Deadline: -")
-        doc.add_paragraph("\n".join(lines))
+        meta_lines.append(f"Opening: {op:%d %b %Y}" if pd.notna(op) else "Opening: -")
+        meta_lines.append(f"Deadline: {dl:%d %b %Y}" if pd.notna(dl) else "Deadline: -")
+        doc.add_paragraph("\n".join(meta_lines))
 
-        # notes
+        # Notes
         notes = (notes_by_code or {}).get(str(r.get("code", "")), "")
         doc.add_heading("Notes", level=2)
         doc.add_paragraph(notes if notes else "-")
 
         # Expected Outcome
-        eo = str(r.get("expected_outcome") or "").strip()
+        eo_raw = str(r.get("expected_outcome") or "").strip()
         doc.add_heading("Expected Outcome", level=2)
-        if eo:
+        if eo_raw:
+            eo = normalize_bullets(clean_footer(eo_raw))
             for para in prepare_for_docx(eo):
-                doc.add_paragraph(para)
+                if para.startswith("- "):
+                    p = doc.add_paragraph(para[2:])
+                    p.paragraph_format.left_indent = Cm(0.5)
+                else:
+                    doc.add_paragraph(para)
         else:
             doc.add_paragraph("-")
 
         # Scope
-        sc = str(r.get("scope") or "").strip()
+        sc_raw = str(r.get("scope") or "").strip()
         doc.add_heading("Scope", level=2)
-        if sc:
+        if sc_raw:
+            sc = normalize_bullets(clean_footer(sc_raw))
             for para in prepare_for_docx(sc):
-                doc.add_paragraph(para)
+                if para.startswith("- "):
+                    p = doc.add_paragraph(para[2:])
+                    p.paragraph_format.left_indent = Cm(0.5)
+                else:
+                    doc.add_paragraph(para)
         else:
             doc.add_paragraph("-")
 
-    # return bytes
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio.getvalue()
-
-
-
-
-def clean_export_text(text: str) -> str:
-    if not text:
-        return ""
-    # Remove word-wrap hyphens
-    text = re.sub(r"-\n", "", text)
-    # Replace non-breaking spaces
-    text = text.replace("\xa0", " ")
-    # Collapse single newlines into spaces, keep double newlines
-    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
-    # Collapse multiple spaces
-    text = re.sub(r"[ \t]+", " ", text)
-    # Trim extra newlines
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    # Remove common footer artifacts
-    text = re.sub(r"Page\s*\|\s*\d+", "", text)
-    return text.strip()
