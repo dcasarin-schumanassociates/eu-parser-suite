@@ -390,7 +390,7 @@ with tab_full:
     
         if row.get("full_text"):
             with st.expander("📖 Full Description"):
-                clean_text = nl_to_br(normalize_bullets(clean_footer(str(row.get("full_text")))))
+                clean_text = normalize_bullets(clean_footer(str(row.get("full_text"))))
                 st.markdown(highlight_text(clean_text, kw_list, match_case=crit.get("match_case", False)), unsafe_allow_html=True)
     
         st.caption(
