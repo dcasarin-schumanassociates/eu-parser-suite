@@ -548,8 +548,6 @@ def merge_edits_into_df(df: pd.DataFrame, sstate) -> None:
             if isinstance(val, str) and val.strip():
                 df.at[idx, field] = val
 
-
-
 def generate_docx_report(
     calls_df: pd.DataFrame,
     notes_by_code: Dict[str, str],
