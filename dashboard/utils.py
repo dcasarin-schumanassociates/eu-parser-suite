@@ -378,7 +378,7 @@ def sa_altair_theme():
             "axis":   {"labelFont": "SA Brand", "labelFontWeight": 500, "titleFont": "SA Brand", "labelColor":"#0F172A"},
             "legend": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
             "header": {"labelFont": "SA Brand", "titleFont": "SA Brand"},
-            "title":  {"font": "SA Brand", "fontSize": 16, "fontWeight": 500, "color":"#0F172A"},
+            "title":  {"font": "SA Brand", "fontSize": 16, "fontWeight": 700, "color":"#0F172A"},
             "range":  {"category": ["#1E4F86","#66C2A5","#FC8D62","#8DA0CB","#E78AC3","#A6D854","#FFD92F","#E5C494","#B3B3B3"]},
             "view":   {"stroke": "transparent"}
         }
@@ -387,122 +387,105 @@ def sa_altair_theme():
 alt.themes.register("sa_theme", sa_altair_theme)
 alt.themes.enable("sa_theme")
 
-def build_segments(df: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    for _, r in df.iterrows():
-        code = str(r.get("code") or "")
-        title = str(r.get("title") or "")
-        y_label = wrap_label(code if code else title, width=100, max_lines=5)
+def build_singlebar_rows(df: pd.DataFrame) -> pd.DataFrame:
+    g = df.copy()
+    base = g["code"].fillna("").astype(str) if "code" in g.columns else pd.Series("", index=g.index)
+    fallback = g.get("title", pd.Series("", index=g.index)).fillna("").astype(str)
+    labels = base.where(base != "", fallback)
+    # ensure uniqueness
+    labels = labels + g.groupby(labels).cumcount().replace(0, "").astype(str).radd("#").replace("#0","")
+    g["y_label"] = labels.map(lambda s: wrap_label(s, width=100, max_lines=5))
+    g["title_inbar"] = g.get("title","").astype(str).map(lambda s: wrap_label(s, width=100, max_lines=3))
+    g = g[pd.notna(g.get("opening_date")) & pd.notna(g.get("deadline")) & (g["opening_date"] <= g["deadline"])].copy()
+    if g.empty:
+        return g
+    g["bar_days"] = (g["deadline"] - g["opening_date"]).dt.days
+    g["mid"] = g["opening_date"] + (g["deadline"] - g["opening_date"])/2
+    return g.sort_values(["deadline","opening_date"])
 
-        open_dt   = r.get("opening_date")
-        final_dt  = r.get("deadline")
-        first_dt  = r.get("first_deadline")
-        second_dt = r.get("second_deadline")
-        two_stage = bool(r.get("two_stage"))
-        title_inbar = wrap_label(title, width=100, max_lines=3)
-
-        if two_stage:
-            # Stage 1
-            if pd.notna(open_dt) and pd.notna(first_dt) and open_dt <= first_dt:
-                rows.append({
-                    "y_label": y_label,
-                    "start": open_dt,
-                    "end": first_dt,
-                    "segment": "Stage 1",
-                    "title": title,
-                    "title_inbar": title_inbar,
-                    "bar_days": (first_dt - open_dt).days
-                })
-            # Stage 2
-            segB_end = second_dt if pd.notna(second_dt) else final_dt
-            if pd.notna(first_dt) and pd.notna(segB_end) and first_dt <= segB_end:
-                rows.append({
-                    "y_label": y_label,
-                    "start": first_dt,
-                    "end": segB_end,
-                    "segment": "Stage 2",
-                    "title": title,
-                    "title_inbar": "",  # avoid repeating title
-                    "bar_days": (segB_end - first_dt).days
-                })
-        else:
-            # Single-stage call
-            if pd.notna(open_dt) and pd.notna(final_dt) and open_dt <= final_dt:
-                rows.append({
-                    "y_label": y_label,
-                    "start": open_dt,
-                    "end": final_dt,
-                    "segment": "Single",
-                    "title": title,
-                    "title_inbar": title_inbar,
-                    "bar_days": (final_dt - open_dt).days
-                })
-
-    seg = pd.DataFrame(rows)
-    if seg.empty:
-        return seg
-    seg["earliest_end"] = seg.groupby("y_label")["end"].transform("min")
-    return seg.sort_values(["earliest_end", "start"]).reset_index(drop=True)
-
-
-def gantt_chart_segments(seg: pd.DataFrame, color_field: str = "type_of_action", title: str = ""):
-    if seg is None or seg.empty:
+def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", title: str = ""):
+    if g is None or g.empty:
         return None
 
-    domain_min = seg["start"].min()
-    domain_max = seg["end"].max()
+    domain_min = g["opening_date"].min()
+    domain_max = g["deadline"].max()
     today_ts = pd.Timestamp.now(tz="Europe/Brussels").normalize().tz_localize(None)
     domain_min = min(domain_min, today_ts)
     domain_max = max(domain_max, today_ts)
 
-    y_order = seg["y_label"].drop_duplicates().tolist()
+    bands_df = build_month_bands(domain_min, domain_max)
+    months = pd.date_range(pd.Timestamp(domain_min).to_period("M").start_time,
+                           pd.Timestamp(domain_max).to_period("M").end_time, freq="MS")
+
+    month_shade = alt.Chart(bands_df).mark_rect(tooltip=False).encode(
+        x="start:T", x2="end:T",
+        opacity=alt.Opacity("band:Q", scale=alt.Scale(domain=[0,1], range=[0.0,0.05]), legend=None),
+        color=alt.value("#1E4F86")
+    )
+    month_grid = alt.Chart(pd.DataFrame({"t": months})).mark_rule(stroke="#1E4F86", strokeWidth=0.3).encode(x="t:T")
+    month_labels_df = pd.DataFrame({"month": months[:-1], "next_month": months[1:], "label": [m.strftime("%b %Y") for m in months[:-1]]})
+    month_labels_df["mid"] = month_labels_df["month"] + ((month_labels_df["next_month"] - month_labels_df["month"]) / 2)
+    month_labels = alt.Chart(month_labels_df).mark_text(align="center", baseline="top", dy=0, fontSize=11, fontWeight="bold").encode(
+        x="mid:T", text="label:N", y=alt.value(0)
+    )
+
+    today_df = pd.DataFrame({"t":[today_ts]})
+    today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(
+        x="t:T", tooltip=[alt.Tooltip("t:T", title="Today", format="%d %b %Y")]
+    )
+    today_label = alt.Chart(today_df).mark_text(align="left", baseline="top", dx=4, dy=15, fontSize=11, fontWeight="bold", color="#1E4F86").encode(
+        x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: %d %b %Y')
+    )
+
+    y_order = g["y_label"].drop_duplicates().tolist()
     row_h = 46
     bar_size = int(row_h * 0.38)
 
-    base = alt.Chart(seg).encode(
+    base = alt.Chart(g).encode(
         y=alt.Y("y_label:N", sort=y_order,
-                axis=alt.Axis(title=None, labelLimit=200, labelFontSize=11,
-                              labelAlign="right", labelPadding=50))
+                axis=alt.Axis(title=None, labelLimit=200, labelFontSize=11, labelAlign="right", labelPadding=50, domain=True),
+                scale=alt.Scale(domain=y_order, paddingInner=0.75, paddingOuter=1))
     )
 
     bars = base.mark_bar(cornerRadius=10, size=bar_size).encode(
-        x=alt.X("start:T", scale=alt.Scale(domain=[domain_min, domain_max]),
-                axis=alt.Axis(title=None, format="%b %Y", tickCount="month", orient="top")),
-        x2="end:T",
-        color=alt.Color(color_field + ":N", legend=alt.Legend(title=color_field.replace("_"," ").title())),
-        opacity=alt.condition(alt.datum.segment == "Stage 2", alt.value(0.7), alt.value(1.0)),
+        x=alt.X("opening_date:T",
+                axis=alt.Axis(title=None, format="%b %Y", tickCount="month", orient="top",
+                              labelFontSize=11, labelPadding=50, labelOverlap="greedy", tickSize=6),
+                scale=alt.Scale(domain=[domain_min, domain_max])),
+        x2="deadline:T",
+        color=alt.Color(color_field + ":N",
+                        legend=alt.Legend(title=color_field.replace("_"," ").title(), orient="top", direction="horizontal", offset=100),
+                        scale=alt.Scale(scheme="set2")),
         tooltip=[
             alt.Tooltip("title:N", title="Title"),
-            alt.Tooltip("start:T", title="Start", format="%d %b %Y"),
-            alt.Tooltip("end:T", title="End", format="%d %b %Y"),
-            alt.Tooltip("segment:N", title="Segment"),
+            alt.Tooltip("opening_date:T", title="Opening", format="%d %b %Y"),
+            alt.Tooltip("deadline:T", title="Deadline", format="%d %b %Y"),
             alt.Tooltip(color_field + ":N", title=color_field.replace("_"," ").title()),
         ]
     )
 
+    start_labels = base.mark_text(align="right", dx=-4, dy=5, fontSize=10, color="#111").encode(
+        x="opening_date:T", text=alt.Text("opening_date:T", format="%d %b %Y"))
+    end_labels = base.mark_text(align="left", dx=4, dy=5, fontSize=10, color="#111").encode(
+        x="deadline:T", text=alt.Text("deadline:T", format="%d %b %Y"))
+
     inbar = base.mark_text(
         align="left", baseline="bottom", dx=2, dy=-(int(bar_size/2)+4),
-        color="black", fontSize=12, fontWeight=700
+        color="black", font="SA Brand", fontSize=12, fontWeight=700
     ).encode(
-        x="start:T",
+        x=alt.X("opening_date:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         text="title_inbar:N",
         opacity=alt.condition(alt.datum.bar_days >= 10, alt.value(1), alt.value(0))
     )
 
-    today_df = pd.DataFrame({"t": [today_ts]})
-    today_rule = alt.Chart(today_df).mark_rule(color="#1E4F86", strokeDash=[2,1], strokeWidth=2).encode(x="t:T")
-    today_label = alt.Chart(today_df).mark_text(align="left", baseline="top", dx=4, dy=15,
-                                                fontSize=11, fontWeight="bold", color="#1E4F86")\
-                                     .encode(x="t:T", y=alt.value(0), text=alt.Text("t:T", format='Today: %d %b %Y'))
-
-    chart = (bars + inbar + today_rule + today_label)\
-        .properties(height=max(800, len(y_order)*row_h), width='container')\
+    chart = (month_shade + month_grid + bars + start_labels + end_labels + inbar + month_labels + today_rule + today_label)\
+        .properties(height=max(800, len(y_order)*row_h), width='container',
+                    padding={"top":50,"bottom":30,"left":10,"right":10})\
         .configure_axis(grid=False, domain=True, domainWidth=1)\
-        .configure_view(strokeWidth=0, clip=False)\
+        .configure_view(continuousHeight=500, continuousWidth=500, strokeWidth=0, clip=False)\
         .interactive(bind_x=True)
 
     return chart if not title else chart.properties(title=title)
-
 
 # ---------- Charts (matplotlib PNG for DOCX) ----------
 def prepare_dates_for_chart(df: pd.DataFrame, default_window_days: int = 60) -> pd.DataFrame:
