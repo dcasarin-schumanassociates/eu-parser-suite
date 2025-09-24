@@ -444,7 +444,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
     base = alt.Chart(g).encode(
         y=alt.Y("y_label:N", sort=y_order,
                 axis=alt.Axis(title=None, labelLimit=200, labelFontSize=11, labelAlign="right", labelPadding=50, domain=True),
-                scale=alt.Scale(domain=y_order, paddingInner=0.75, paddingOuter=1))
+                scale=alt.Scale(domain=y_order, paddingInner=1, paddingOuter=1))
     )
 
     bars = base.mark_bar(cornerRadius=10, size=bar_size).encode(
@@ -471,7 +471,7 @@ def gantt_singlebar_chart(g: pd.DataFrame, color_field: str = "type_of_action", 
 
     inbar = base.mark_text(
         align="left", baseline="bottom", dx=2, dy=-(int(bar_size/2)+4),
-        color="black", font="SA Brand", fontSize=12, fontWeight=700
+        color="black", font="SA Brand", fontSize=12, fontWeight=500
     ).encode(
         x=alt.X("opening_date:T", scale=alt.Scale(domain=[domain_min, domain_max]), axis=None),
         text="title_inbar:N",
