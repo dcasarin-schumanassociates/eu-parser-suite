@@ -577,11 +577,17 @@ def guard_large_render(filt_df: pd.DataFrame, view_name: str) -> bool:
     )
     return st.button(f"Render anyway ({view_name})", key=f"render_anyway_{view_name}_{n}")
 
+import hashlib
+
 def render_shortlist_row(exp_label: str, code: str, render_body_fn):
     row_cols = st.columns([0.16, 0.84])
     with row_cols[0]:
         checked = code in st.session_state.sel35
-        new_val = st.checkbox("Shortlist", value=checked, key=f"short_{code}_{hash(exp_label) % 10_000_000}")
+        # Create a unique, deterministic key based on both code and label
+        key_base = f"{code}_{exp_label}"
+        unique_key = hashlib.md5(key_base.encode("utf-8")).hexdigest()
+        new_val = st.checkbox("Shortlist", value=checked, key=f"short_{unique_key}")
+        
         if new_val and not checked:
             st.session_state.sel35.add(code)
         elif not new_val and checked:
