@@ -225,7 +225,7 @@ def apply_horizon_filters(df0: pd.DataFrame) -> pd.DataFrame:
     if crit["dests"]:
         df = df[df.get("destination").isin(crit["dests"])]
     if crit["trls"]:
-        f = f[f["trl"].astype(str).isin(crit["trls"])]
+        df = df[df["trl"].astype(str).isin(crit["trls"])]
     return df
 
 def apply_erasmus_filters(df0: pd.DataFrame) -> pd.DataFrame:
