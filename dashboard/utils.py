@@ -296,7 +296,7 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
     if "programme" not in df.columns:
         df["programme"] = programme_name  # don't overwrite if already present
 
-    for c in ("budget_per_project_eur","total_budget_eur","trl","num_projects"):
+    for c in ("budget_per_project_eur","total_budget_eur","num_projects"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
