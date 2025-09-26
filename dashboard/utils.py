@@ -304,6 +304,11 @@ def canonicalise(df: pd.DataFrame, programme_name: str) -> pd.DataFrame:
         if c in df.columns:
             df[c] = safe_date_series(df[c])
 
+        # TRL as text
+    if "trl" in df.columns:
+        df["trl"] = df["trl"].astype(str).str.strip()
+        df.loc[df["trl"].isin(["", "nan", "NaT"]), "trl"] = ""
+
     if "two_stage" in df.columns:
         df["two_stage"] = (
             df["two_stage"].astype(str).str.strip().str.lower()
