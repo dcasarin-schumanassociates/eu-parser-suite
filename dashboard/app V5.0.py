@@ -72,7 +72,8 @@ type_opts      = sorted([t for t in all_df.get("type_of_action", pd.Series(dtype
 
 cluster_opts   = sorted([c for c in df_h.get("cluster", pd.Series(dtype=object)).dropna().unique().tolist() if c!=""])
 dest_opts      = sorted([d for d in df_h.get("destination", pd.Series(dtype=object)).dropna().unique().tolist() if d!=""])
-trl_opts = sorted([t for t in df.get("trl", pd.Series(dtype=object)).dropna().unique() if str(t).strip() != ""])
+trl_opts       = sorted([t for t in df_h.get("trl", pd.Series(dtype=object)).dropna().unique().tolist() if str(t).strip() != ""
+])
 
 ma_opts        = sorted([m for m in df_e.get("managing_authority", pd.Series(dtype=object)).dropna().unique().tolist() if m!=""])
 ka_opts        = sorted([k for k in df_e.get("key_action", pd.Series(dtype=object)).dropna().unique().tolist() if k!=""])
