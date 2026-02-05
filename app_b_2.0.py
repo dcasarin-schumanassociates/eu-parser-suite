@@ -105,31 +105,27 @@ def highlight_text(text: str, keywords: list[str], colours=None) -> str:
     return highlighted
 
 
-def summarize_call_via_openai(prompt: str, payload: dict, model: str) -> str:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return "⚠️ Missing OPENAI_API_KEY. Set it in your environment to enable summaries."
-    body = json.dumps({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "You summarize EU funding calls succinctly."},
-            {"role": "user", "content": f"{prompt}\n\n{json.dumps(payload, ensure_ascii=False)}"},
-        ],
-        "temperature": 0.2,
-    }).encode("utf-8")
+def summarize_call_via_huggingface(prompt: str, payload: dict, model: str) -> str:
+    api_token = os.getenv("HF_API_TOKEN")
+    payload_text = f"{prompt}\n\n{json.dumps(payload, ensure_ascii=False)}"
+    body = json.dumps({"inputs": payload_text}).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
     req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        f"https://api-inference.huggingface.co/models/{model}",
         data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=headers,
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        return data["choices"][0]["message"]["content"].strip()
+        if isinstance(data, dict) and data.get("error"):
+            return f"⚠️ Summary failed: {data['error']}"
+        if isinstance(data, list) and data:
+            return data[0].get("summary_text", "").strip()
+        return "⚠️ Summary failed: empty response."
     except Exception as exc:  # noqa: BLE001
         return f"⚠️ Summary failed: {exc}"
 
@@ -842,8 +838,9 @@ with tab4:
             value="Summarize each call in 3-5 bullet points, highlighting goals, eligibility, and key dates.",
             height=100,
         )
-        model = st.text_input("Model", value="gpt-4o-mini")
+        model = st.text_input("Model", value="facebook/bart-large-cnn")
         include_full_text = st.checkbox("Include full description text", value=False)
+        st.caption("Optional: set HF_API_TOKEN to increase rate limits on Hugging Face Inference API.")
 
         if st.button("Generate summaries"):
             summaries = {}
@@ -868,7 +865,7 @@ with tab4:
                         payload["expected_outcome"] = full_row.get("expected_outcome")
                         payload["scope"] = full_row.get("scope")
                         payload["full_text"] = full_row.get("full_text")
-                    summaries[row.get("code")] = summarize_call_via_openai(prompt_text, payload, model)
+                    summaries[row.get("code")] = summarize_call_via_huggingface(prompt_text, payload, model)
             st.session_state["summaries"] = summaries
 
         summaries = st.session_state.get("summaries", {})
