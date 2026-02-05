@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import urllib.error
 import urllib.request
 import pandas as pd
 import streamlit as st
@@ -112,22 +113,36 @@ def summarize_call_via_huggingface(prompt: str, payload: dict, model: str) -> st
     headers = {"Content-Type": "application/json"}
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"
-    req = urllib.request.Request(
+    endpoints = [
         f"https://api-inference.huggingface.co/models/{model}",
-        data=body,
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if isinstance(data, dict) and data.get("error"):
-            return f"⚠️ Summary failed: {data['error']}"
-        if isinstance(data, list) and data:
-            return data[0].get("summary_text", "").strip()
-        return "⚠️ Summary failed: empty response."
-    except Exception as exc:  # noqa: BLE001
-        return f"⚠️ Summary failed: {exc}"
+        f"https://api-inference.huggingface.co/pipeline/summarization/{model}",
+    ]
+    last_error = None
+    for endpoint in endpoints:
+        req = urllib.request.Request(
+            endpoint,
+            data=body,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            if isinstance(data, dict) and data.get("error"):
+                return f"⚠️ Summary failed: {data['error']}"
+            if isinstance(data, list) and data:
+                return data[0].get("summary_text", "").strip()
+            return "⚠️ Summary failed: empty response."
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 410:
+                continue
+            return f"⚠️ Summary failed: {exc}"
+        except Exception as exc:  # noqa: BLE001
+            return f"⚠️ Summary failed: {exc}"
+    if last_error:
+        return f"⚠️ Summary failed: {last_error}"
+    return "⚠️ Summary failed: unknown error."
 
 
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
