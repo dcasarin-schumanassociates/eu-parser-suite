@@ -1,6 +1,9 @@
 # app_b.py — Altair Gantt (stable, tidier filters)
 from __future__ import annotations
 import io
+import json
+import os
+import urllib.request
 import pandas as pd
 import streamlit as st
 import altair as alt
@@ -100,6 +103,35 @@ def highlight_text(text: str, keywords: list[str], colours=None) -> str:
             highlighted
         )
     return highlighted
+
+
+def summarize_call_via_openai(prompt: str, payload: dict, model: str) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "⚠️ Missing OPENAI_API_KEY. Set it in your environment to enable summaries."
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You summarize EU funding calls succinctly."},
+            {"role": "user", "content": f"{prompt}\n\n{json.dumps(payload, ensure_ascii=False)}"},
+        ],
+        "temperature": 0.2,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception as exc:  # noqa: BLE001
+        return f"⚠️ Summary failed: {exc}"
 
 
 def canonicalise(df: pd.DataFrame) -> pd.DataFrame:
@@ -800,6 +832,52 @@ with tab4:
             file_name="shortlist_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+        st.divider()
+        st.subheader("AI Summary (on-demand)")
+        st.caption("Summaries are generated only for shortlisted calls when you click the button.")
+
+        prompt_text = st.text_area(
+            "Summary prompt",
+            value="Summarize each call in 3-5 bullet points, highlighting goals, eligibility, and key dates.",
+            height=100,
+        )
+        model = st.text_input("Model", value="gpt-4o-mini")
+        include_full_text = st.checkbox("Include full description text", value=False)
+
+        if st.button("Generate summaries"):
+            summaries = {}
+            with st.spinner("Generating summaries..."):
+                for _, row in shortlist_df.iterrows():
+                    payload = {
+                        "code": row.get("code"),
+                        "title": row.get("title"),
+                        "opening_date": str(row.get("opening_date")),
+                        "deadline": str(row.get("deadline")),
+                        "first_deadline": str(row.get("first_deadline")),
+                        "second_deadline": str(row.get("second_deadline")),
+                        "cluster": row.get("cluster"),
+                        "destination_or_strand": row.get("destination_or_strand"),
+                        "budget_per_project_eur": row.get("budget_per_project_eur"),
+                        "total_budget_eur": row.get("total_budget_eur"),
+                        "type_of_action": row.get("type_of_action"),
+                        "trl": row.get("trl"),
+                    }
+                    if include_full_text:
+                        full_row = f[f["code"] == row.get("code")].iloc[0]
+                        payload["expected_outcome"] = full_row.get("expected_outcome")
+                        payload["scope"] = full_row.get("scope")
+                        payload["full_text"] = full_row.get("full_text")
+                    summaries[row.get("code")] = summarize_call_via_openai(prompt_text, payload, model)
+            st.session_state["summaries"] = summaries
+
+        summaries = st.session_state.get("summaries", {})
+        if summaries:
+            for code in shortlist:
+                summary = summaries.get(code)
+                if summary:
+                    with st.expander(f"Summary for {code}"):
+                        st.markdown(summary)
 
         # Optional: export as Markdown for easy copy/paste
         md_report = shortlist_df.to_markdown(index=False)
